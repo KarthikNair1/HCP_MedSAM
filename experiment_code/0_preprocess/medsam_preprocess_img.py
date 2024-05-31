@@ -9,64 +9,65 @@ import torch
 from segment_anything import sam_model_registry
 from skimage import io, transform
 import torch.nn.functional as F
-
+from segment_anything.utils.transforms import ResizeLongestSide
+import glob
 import argparse
 
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--start_idx", type=int)
-parser.add_argument("--end_idx", type=int)
+
+# accepts start_idx and end_idx for processing whole dataset across multiple nodes
+parser.add_argument("--start_idx", type=int, default = 0)
+parser.add_argument("--end_idx", type=int, default = 1113)
+parser.add_argument("--mri_file_pattern", type=str, help = 'String pattern for all .mgz/.gz MRI files. For example, /gpfs/data/cbi/hcp/hcp_seg/data_orig/*/mri/T1.mgz')
+parser.add_argument("--MedSAM_checkpoint_path", type = str, default = "/gpfs/home/kn2347/MedSAM/medsam_vit_b.pth")
+parser.add_argument("--dest_image_encoding_dir", type = str, help = "Target directory for saving all image encodings, e.g. /gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/pretrained_image_encoded_slices")
+parser.add_argument("--dest_seg_dir", type = str, help = "Target directory for saving all image segmentations, e.g. /gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/segmentation_slices")
+parser.add_argument("--device", type = str, default = "cuda", help = 'cuda or cpu?')
+
 args = parser.parse_args()
+
 
 start_idx = args.start_idx
 end_idx = args.end_idx
+file_pattern = args.mri_file_pattern
+MedSAM_CKPT_PATH = args.MedSAM_checkpoint_path
+device = args.device
+img_encoding_dir = args.dest_image_encoding_dir
+segment_root_dir = args.dest_seg_dir
 
-#%% load model and image
+# load model and image
+medsam_model = sam_model_registry['vit_b'](checkpoint=MedSAM_CKPT_PATH)
+medsam_model = medsam_model.to(device)
+medsam_model.eval()
 
-
-MedSAM_CKPT_PATH = "/gpfs/home/kn2347/MedSAM/medsam_vit_b.pth"
-#device = "cuda:0"
-device='cpu'
-#medsam_model = sam_model_registry['vit_b'](checkpoint=MedSAM_CKPT_PATH)
-#medsam_model = medsam_model.to(device)
-#medsam_model.eval()
-
-from segment_anything.utils.transforms import ResizeLongestSide
-import glob
-
-file_pattern = '/gpfs/data/luilab/karthik/brats_dataset/BraTSReg_Training_Data_v3/*/*_t1.nii.gz'
+# get all paths to MRI files and sort them so that the order is reproducible
 paths = glob.glob(file_pattern)
-'/gpfs/data/cbi/hcp/hcp_seg/data_orig/100206/mri/aparc+aseg.mgz'
 paths = sorted(paths)
-
-#root = '/gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/pretrained_image_encoded_slices'
-#segment_root_dir = '/gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/segmentation_slices'
-
-
-segment_root_dir = '/gpfs/data/luilab/karthik/pediatric_seg_proj/brats_slices_npy/segmentation_slices'
-img_encoding_dir = '/gpfs/data/luilab/karthik/pediatric_seg_proj/brats_slices_npy/pretrained_image_encoded_slices'
 
 ctr = 0
 
+# for every MRI found according to the pattern:
 for p in paths[start_idx:min(end_idx, len(paths))]:
     id = p.split('/')[-3]
 
     print (f'On {ctr}/{min(end_idx, len(paths)) - start_idx}')
     ctr+=1
 
-    folder_dir = f'{root}/{id}'
+    folder_dir = f'{img_encoding_dir}/{id}'
     segment_folder_dir = f'{segment_root_dir}/{id}'
     if not os.path.exists(folder_dir):
         os.makedirs(folder_dir)
     if not os.path.exists(segment_folder_dir):
         os.makedirs(segment_folder_dir)
     
-    
-    data_mri = nib.load(p).get_fdata()  
+    # load the MRI file and the segmentation file using nibabel
+    data_mri = nib.load(p).get_fdata()
     seg_path = os.path.join('/'.join(p.split('/')[:-1]), 'aparc+aseg.mgz')
     data_segmentation = nib.load(seg_path).get_fdata()
 
+    # for every slice, calculate the image encoding and save it, as well as the segmentation file as .npy's
     for slice in range(data_mri.shape[1]):
         
         slice_path = f'{folder_dir}/{slice}.npy'
@@ -79,7 +80,7 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
             x_tensor_preproc = (x - x.min()) / np.clip(
                 x.max() - x.min(), a_min=1e-8, a_max=None
             )
-            x_tensor_preproc = torch.tensor(x_tensor_preproc).float().permute(2,0,1).unsqueeze(0).to('cuda')
+            x_tensor_preproc = torch.tensor(x_tensor_preproc).float().permute(2,0,1).unsqueeze(0).to(device)
 
             with torch.no_grad():
                 embedding = medsam_model.image_encoder(x_tensor_preproc) # shape is (1, 256, 64, 64)

@@ -1,9 +1,3 @@
-"""
-train the image encoder and mask decoder
-freeze prompt image encoder
-"""
-
-
 '''
 python /gpfs/home/kn2347/MedSAM/train_multi_gpus_modified.py \
     --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv \
@@ -103,6 +97,7 @@ parser.add_argument('--resume', type = str, default = '',
                     help="Resuming training from checkpoint")
 parser.add_argument('--init_method', type = str, default = "env://")
 parser.add_argument('--fast_dev_run', action='store_true', default=False, help='runs a single batch of training and validation')
+parser.add_argument('--df_starting_mapping_path', type=str, default = '/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv', help = 'Path to dataframe holding the integer labels in the segmentation numpy files and the corresponding text label, prior to subsetting for only the labels we are interested in.')
 parser.add_argument('--df_desired_path', type=str, default = '/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
 parser.add_argument('--wandb_run_name', type=str, default = None)
 parser.add_argument('--suppress_train_debug_imgs', action='store_true', default = False)
@@ -183,7 +178,7 @@ def main_worker(gpu, ngpus_per_node, args):
     #sam_model = sam_model_registry[args.model_type](checkpoint=args.checkpoint)
 
 
-    df_hcp = pd.read_csv('/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv')
+    df_hcp = pd.read_csv(args.df_starting_mapping_path)
     df_desired = pd.read_csv(args.df_desired_path)
     NUM_CLASSES = len(df_desired)
     NUM_CLASSES_FOR_LOSS = NUM_CLASSES

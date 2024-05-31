@@ -53,15 +53,17 @@ class dice_ce_loss(Loss):
 torch.manual_seed(2023)
 torch.cuda.empty_cache()
 
-'''
-python /gpfs/home/kn2347/test/train_unet.py -label_id 1 -num_classes 1 -batch_size 64 -num_workers 2 \
--project_name singletask_unet -wandb_run_name label1
-'''
-
 parser = argparse.ArgumentParser()
+parser.add_argument('-i', '--data_frame_path', type=str,
+                    default='/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv',
+                    help='path to pandas dataframe with all paths for training')
+parser.add_argument('-train_test_splits', type=str,
+                    default='/gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle',
+                    help='path to pickle file containing a dictionary with train, val, and test IDs')
+parser.add_argument('--df_starting_mapping_path', type=str, default = '/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv', help = 'Path to dataframe holding the integer labels in the segmentation numpy files and the corresponding text label, prior to subsetting for only the labels we are interested in.')
+parser.add_argument('--df_desired_path', type=str, default = '/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
 parser.add_argument('-label_id', type=int, default=1,
                     help='Label number for training')
-
 parser.add_argument('-num_classes', type=int, default=1)
 parser.add_argument('-batch_size', type=int, default=64)
 parser.add_argument('-num_workers', type=int, default=2)
@@ -109,14 +111,15 @@ def init_wandb():
 
 init_wandb()
 
-df_hcp = pd.read_csv('/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv')
-df_desired = pd.read_csv('/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
+df_hcp = pd.read_csv(args.df_starting_mapping_path)
+df_desired = pd.read_csv(args.df_desired_path)
 label_converter = LabelConverter(df_hcp, df_desired)
 
 preprocess_input = get_preprocessing_fn('resnet18', pretrained='imagenet')
 
-train, val, test = load_datasets('/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/baseline_unet/all_labels_df.csv',
-            '/gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle',
+train, val, test = load_datasets(
+            args.data_frame_path,
+            args.train_test_splits,
             label_id = label_id, bbox_shift=0, 
                 sample_n_slices = None, label_converter=label_converter, NUM_CLASSES=num_classes+1, 
                 as_one_hot=True, pool_labels=False, preprocess_fn = preprocess_input, dataset_type = MRIDataset_Imgs)
@@ -196,7 +199,6 @@ for i in range(0, 40):
     if max_score < valid_logs['iou_score']:
         max_score = valid_logs['iou_score']
         torch.save(model, model_save_path + '-best_model.pth')
-        #torch.save(model, '/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/frozen_encoder_best_model.pth')
         print('Model saved!')
     if i == 25:
         optimizer.param_groups[0]['lr'] = lr / 10

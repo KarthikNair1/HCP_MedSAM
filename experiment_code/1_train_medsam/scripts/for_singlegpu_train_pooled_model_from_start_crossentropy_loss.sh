@@ -1,0 +1,23 @@
+python /gpfs/home/kn2347/MedSAM/train_multi_gpus_modified_multiclass.py \
+        --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/yolov7/path_df_pooled_labels_only_with_bbox_yolov7.csv \
+        --df_starting_mapping_path /gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv \
+        --df_desired_path /gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv \
+        -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
+        -task_name MedSAM_finetune_final_round \
+        --wandb_run_name pooled_labels_yolov7 \
+        -checkpoint /gpfs/home/kn2347/MedSAM/medsam_vit_b.pth \
+        -work_dir /gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/pool_model_rerun_8-26-23 \
+        -label_id 1 \
+        -batch_size 64 \
+        -num_workers 4 \
+        -num_epochs 30 \
+        --lambda_dice 0 \
+        -lr 1e-4 \
+        -use_wandb True \
+        -use_amp \
+        --suppress_train_debug_imgs \
+        --pool_labels \
+        --world_size 1 \
+        --bucket_cap_mb 25 \
+        --grad_acc_steps 1 \
+        --node_rank 0
