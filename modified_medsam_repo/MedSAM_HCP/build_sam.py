@@ -122,3 +122,9 @@ def resume_model_optimizer_and_epoch_from_checkpoint(args, rank, gpu, medsam_mod
     else:
         print('Not a valid resume path')
         return None, None, None
+
+def save_model_optimizer_and_epoch_to_checkpoint(args, medsam_model, optimizer, epoch, filename):
+    checkpoint = {'model': medsam_model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'epoch': epoch}
+    torch.save(checkpoint, filename)

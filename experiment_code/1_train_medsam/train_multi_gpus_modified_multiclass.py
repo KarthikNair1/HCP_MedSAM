@@ -1,15 +1,3 @@
-'''
-python /gpfs/home/kn2347/MedSAM/train_multi_gpus_modified.py \
-    --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv \
-    -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
-    -task_name MedSAM_finetune_hcp_ya_constant_bbox \
-    -label_id 2 \
-    -checkpoint /gpfs/home/kn2347/MedSAM/medsam_vit_b.pth \
-    -work_dir /gpfs/home/kn2347/results/medsam_finetuning_model_checkpoints_7-18-23 \
-    -num_epochs 10 -batch_size 8 -num_workers 0 -lr 1e-5 -use_wandb True -use_amp \
-    --world_size 1 --node_rank 0 -sample_n_slices 30
-
-'''
 #%% setup environment
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,11 +23,12 @@ import pickle
 import time
 
 from MedSAM_HCP.dataset import MRIDataset, load_datasets
-from MedSAM_HCP.MedSAM import MedSAM
-from MedSAM_HCP.build_sam import build_sam_vit_b_multiclass, resume_model_optimizer_and_epoch_from_checkpoint
+from MedSAM_HCP.MedSAM import MedSAM, logits_to_pred_probs
+from MedSAM_HCP.build_sam import build_sam_vit_b_multiclass, resume_model_optimizer_and_epoch_from_checkpoint, save_model_optimizer_and_epoch_to_checkpoint
 from MedSAM_HCP.utils_hcp import *
 from MedSAM_HCP.loss_funcs_hcp import *
-from MedSAM_HCP.logging_functions import *
+from MedSAM_HCP.logging_functions import init_wandb, print_cuda_memory, log_losses_step, log_predicted_probabilities, log_class_losses_as_barplots
+from MedSAM_HCP.train_MedSAM_functions import retrieve_class_weights_tensor, train_step, validate_step, log_stuff_at_step, log_stuff_at_epoch
 
 # set seeds
 torch.manual_seed(2023)
@@ -85,6 +74,8 @@ parser.add_argument('-lr', type=float, default=0.0001, metavar='LR',
                     help='learning rate (absolute lr)')
 parser.add_argument('-use_wandb', type=bool, default=False, 
                     help='use wandb to monitor training')        
+parser.add_argument('-wandb_dir', type=bool, default='/gpfs/home/kn2347/wandb', 
+                    help='Directory of wandb')    
 parser.add_argument('-use_amp', action='store_true', default=False, 
                     help='use amp')           
 ## Distributed training args
@@ -111,7 +102,6 @@ args = parser.parse_args()
 if args.pool_labels and args.label_id is None: # this should not happen
     assert False
 
-# %% set up model for fine-tuning
 # device = args.device
 run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
 model_save_path = join(args.work_dir, args.task_name + '-' + run_id)
@@ -148,31 +138,7 @@ def main_worker(gpu, ngpus_per_node, args):
         # initialize wandb project if specified
         if args.use_wandb and is_main_host:
             import wandb
-            wandb.login()
-            wandb.init(project=args.task_name, 
-                name = args.wandb_run_name,
-                dir = '/gpfs/home/kn2347/wandb',
-                config={"lr": args.lr, 
-                        "batch_size": args.batch_size,
-                        "data_path": args.data_frame_path,
-                        "splits_path": args.train_test_splits,
-                        "model_type": args.model_type,
-                        "as_one_hot": args.as_one_hot,
-                        "loss_switching": args.loss_switching,
-                        "loss_reweighted": args.loss_reweighted,
-                        "keep_zero_weight": args.keep_zero_weight,
-                        "lambda_dice": args.lambda_dice,
-                        "label": args.label_id
-                        })
-            
-            # Define metrics for wandb
-            wandb.define_metric('num_training_samples')
-            wandb.define_metric('epoch')
-            wandb.define_metric('train_step_loss', step_metric='num_training_samples')
-            wandb.define_metric('train_epoch_loss', step_metric='num_training_samples')
-            wandb.define_metric('val_epoch_loss', step_metric='num_training_samples')
-            wandb.define_metric('label_1/*', step_metric='num_training_samples')
-            wandb.define_metric('val_dice_scores/*', step_metric='num_training_samples', summary='max')
+            init_wandb(args)
     
     # Set the current GPU for PyTorch
     torch.cuda.set_device(gpu)
@@ -184,32 +150,35 @@ def main_worker(gpu, ngpus_per_node, args):
         rank = rank,
         world_size = world_size
     )
-    
 
     # load names of regions and corresponding label number per FreeSurfer
     df_hcp = pd.read_csv(args.df_starting_mapping_path)
 
     # load names of desired subset of regions and corresponding label number in the range 0...102
     df_desired = pd.read_csv(args.df_desired_path)
+
+
+    is_multitask = args.label_id is None
     NUM_CLASSES = len(df_desired)
     NUM_CLASSES_FOR_LOSS = NUM_CLASSES
-    if args.label_id is not None:
+    if is_multitask:
         NUM_CLASSES_FOR_LOSS = 1
 
     if args.pool_labels: # so that we only load the architecture to produce 3 masks, not 103 masks
        NUM_CLASSES = 1
 
+    
+
     label_converter = LabelConverter(df_hcp, df_desired) # compresses label numbers to range 0...102
 
     # build SAM model from checkpoint
     sam_model = build_sam_vit_b_multiclass(num_classes=max(NUM_CLASSES, 3), checkpoint=args.checkpoint) # if single class, load original SAM model
-    print(sam_model)
 
     # initialize MedSAM model object using the loaded SAM model
     medsam_model = MedSAM(image_encoder=sam_model.image_encoder, 
                         mask_decoder=sam_model.mask_decoder,
                         prompt_encoder=sam_model.prompt_encoder,
-                        multimask_output= args.label_id is None # 2 because unknown class is also present in single-task case
+                        multimask_output= is_multitask # 2 because unknown class is also present in single-task case
                     ).cuda()
 
     # memory before model initialized
@@ -225,7 +194,7 @@ def main_worker(gpu, ngpus_per_node, args):
         find_unused_parameters = True,
         bucket_cap_mb = args.bucket_cap_mb ## Too large -> comminitation overlap, too small -> unable to overlap with computation
     )
-
+    
     # memory after model initialized
     print(f'[RANK {rank}] After DDP initialized:')
     print_cuda_memory(gpu)
@@ -237,7 +206,6 @@ def main_worker(gpu, ngpus_per_node, args):
     print('Number of trainable parameters: ', sum(p.numel() for p in medsam_model.parameters() if p.requires_grad))
 
     # Setting up optimiser and loss func
-    #     
     mask_dec_params = list(
             medsam_model.module.mask_decoder.parameters() # only optimize the parameters of mask decoder, do not update prompt encoder or image_encoder
     )
@@ -248,32 +216,24 @@ def main_worker(gpu, ngpus_per_node, args):
     )
     print('Number of mask decoder parameters: ', sum(p.numel() for p in mask_dec_params if p.requires_grad)) # 93729252
 
-    train_dataset, val_dataset, test_dataset = load_datasets(args.data_frame_path, args.train_test_splits, args.label_id, bbox_shift=args.bbox_shift, sample_n_slices = args.sample_n_slices, label_converter=label_converter, NUM_CLASSES=NUM_CLASSES, as_one_hot=args.as_one_hot, pool_labels=args.pool_labels)
-    
-    if args.class_weights_dict_path is not None and args.loss_reweighted:
-        class_weights = pickle.load(open(args.class_weights_dict_path, 'rb'))
-        class_weights_tensor = torch.zeros((NUM_CLASSES_FOR_LOSS)).cuda()
-        for key in class_weights.keys():
-            compressed_idx = label_converter.hcp_to_compressed(key)
-            if compressed_idx == 0: # unknown class
-                if args.keep_zero_weight:
-                    if key == 0: # if this is the true unknown class and not just another class that didn't map properly
-                        class_weights_tensor[compressed_idx] = class_weights[key]
-                else:
-                    class_weights_tensor[compressed_idx] = 0
-            else:
-                class_weights_tensor[compressed_idx] = class_weights[key]
-    else:
-        class_weights_tensor = torch.ones((NUM_CLASSES_FOR_LOSS)).cuda()
+    train_dataset, val_dataset, test_dataset = load_datasets(
+        args.data_frame_path, args.train_test_splits, args.label_id, 
+        bbox_shift=args.bbox_shift, sample_n_slices = args.sample_n_slices, 
+        label_converter=label_converter, NUM_CLASSES=NUM_CLASSES, 
+        as_one_hot=args.as_one_hot, pool_labels=args.pool_labels
+    )
     
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
-    ## Distributed sampler has done the shuffling for you,
-    ## So no need to shuffle in dataloader
 
+    # get class weights if specified, or populate with tensor of 1's if not specified
+    class_weights_tensor = retrieve_class_weights_tensor(NUM_CLASSES_FOR_LOSS, label_converter, args)
+    
     print('Number of training samples: ', len(train_dataset))
     print('Number of validation samples: ', len(val_dataset))
 
+    # Distributed sampler does shuffling intrinsically,
+    # So no need to shuffle in dataloader if sampler is defined
     train_dataloader = DataLoader(
         train_dataset,
         batch_size = args.batch_size,
@@ -301,13 +261,14 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.use_amp:
         scaler = torch.cuda.amp.GradScaler()
         print(f"[RANK {rank}: GPU {gpu}] Using AMP for training")
+    else:
+        scaler = None
 
     if not args.loss_reweighted:
         print('running WITHOUT reweighted loss')
 
     # set up train parameters and loss trackers
     num_epochs = args.num_epochs
-    iter_num = 0
     train_losses = []
     val_losses = []
     best_val_loss = 1e10
@@ -331,208 +292,101 @@ def main_worker(gpu, ngpus_per_node, args):
         if epoch >= 1 and args.loss_switching:
             lambda_dice = 1
         
-        # learn from all training examples in this epoch
+        # train from all TRAINING examples in this epoch
         for step, (image_embedding, gt2D, boxes, _) in enumerate(tqdm(train_dataloader, desc = f"[RANK {rank}: GPU {gpu}]")):
             
-            optimizer.zero_grad()
-            boxes_np = boxes.detach().cpu().numpy()
-            image_embedding, gt2D = image_embedding.cuda(), gt2D.cuda()
-            if args.use_amp:
-                with torch.autocast(device_type='cuda', dtype=torch.float16):
-                    medsam_pred = medsam_model(image_embedding, boxes_np)
-                    loss, class_losses, dice_class_losses, ce_class_losses = loss_handler(loss_type, medsam_pred, gt2D, class_weights_tensor, lambda_dice, args.as_one_hot, focal_alpha = focal_loss_set_alpha)
-            
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-            else:
-                medsam_pred = medsam_model(image_embedding, boxes_np)
-                loss, class_losses, dice_class_losses, ce_class_losses = loss_handler(loss_type, medsam_pred, gt2D, class_weights_tensor, lambda_dice, args.as_one_hot, focal_alpha = focal_loss_set_alpha)
-                loss.backward()
-                optimizer.step()
-                optimizer.zero_grad()
+            # if fast_dev_run specified, exit training loop early
+            if args.fast_dev_run and step == 5:
+                break
+
+            loss, class_losses, dice_class_losses, ce_class_losses, medsam_pred = train_step(
+                medsam_model, optimizer, scaler, class_weights_tensor, 
+                lambda_dice, image_embedding, gt2D, boxes, args
+            )
             
             total_number_of_training_examples_seen += image_embedding.shape[0]
 
-            # if host process, log to wandb
-            if is_main_host and args.use_wandb:
-                wandb.log({"train_step_loss": loss.item(),
-                            'num_training_samples': total_number_of_training_examples_seen})
-
-                # log loss on label 1 (or just the only label if single-task)
-                label_idx = 1 if args.label_id is None else 0
-                if class_losses is not None:
-                    wandb.log({"label_1/label1_loss": class_losses[label_idx].item()})
-                    wandb.log({"label_1/label1_DICE_loss": dice_class_losses[label_idx].item()})
-                    wandb.log({"label_1/label1_CE_loss": ce_class_losses[label_idx].item()})
-                
-
-                # print sum predictions per class
-                if args.as_one_hot:
-                    class_1_sum = (torch.sigmoid(medsam_pred) > 0.5).int().sum(dim=(0,2,3))[label_idx].item() # C
-                else:
-                    class_1_sum = (torch.argmax(medsam_pred, dim=1) == 1).int().sum().item()
-
-                wandb.log({"label_1/label1_sum": class_1_sum})
-                
-
-            if step>10 and step % 100 == 0:
-                if is_main_host and not args.suppress_train_debug_imgs:
-                    checkpoint = {'model': medsam_model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'epoch': epoch}
-                    torch.save(checkpoint, join(model_save_path, 'medsam_model_latest_step.pth'))
-                    label_idx = 1 if args.label_id is None else 0
-                    fig, _, _ = plot_random_example(val_dataset, model_list=[medsam_model.module],
-                                    names_list=[f'Label: 1, Epoch: {epoch}'],
-                                    label_to_viz = label_idx,
-                                    n_ex = 3,
-                                    seed = 182,
-                                    as_one_hot = args.as_one_hot,
-                                    model_trained_on_multi_label = args.label_id is None)
-                    if fig is not None:
-                        wandb.log({f'train_images_debug_on_val/class_1': fig})
-                        plt.close()
-                    
-                    fig, _ = plot_prediction_distribution(torch.sigmoid(medsam_pred)[:,label_idx,:,:])
-                    wandb.log({"label_1/label1_avg_prediction": wandb.Image(fig)})
-
-                    if class_losses is not None and args.label_id is None: # multitask with calculated class losses
-                        fig, _ = plot_losses_for_classes(class_losses[1:])
-                        wandb.log({f'class_loss_training_barplot': wandb.Image(fig)})
-                        plt.close()
-
-                        fig, _ = plot_worst_k_best_k(class_losses[1:], k = 5, label_converter = label_converter)
-                        wandb.log({f'top5_worst5_losses_training_barplot': wandb.Image(fig)})
-                        plt.close()
-
+            # update running training loss
             train_epoch_loss += loss.item()
-            iter_num += 1
 
-            # if fast_dev_run specified, exit training loop early
-            if args.fast_dev_run and step == 4:
-                break
+            if is_main_host:
+                if step>10 and step % 100 == 0: # if we reach a "checkpoint" step
 
-        train_epoch_loss /= step+1
-        train_losses.append(train_epoch_loss)
+                    # then save checkpoint
+                    save_model_optimizer_and_epoch_to_checkpoint(
+                        args=args, medsam_model=medsam_model, optimizer=optimizer, epoch=epoch, 
+                        filename = os.path.join(model_save_path, 'medsam_model_latest_step.pth')
+                    )
 
-        # validate on all validation samples in this epoch
+                    # also log metrics and example images
+                    log_stuff_at_step(
+                        loss=loss, class_losses=class_losses, 
+                        dice_class_losses=dice_class_losses, ce_class_losses=ce_class_losses,
+                        medsam_pred=medsam_pred, 
+                        total_number_of_training_examples_seen=total_number_of_training_examples_seen,
+                        medsam_model=medsam_model, val_dataset = val_dataset,
+                        epoch=epoch, args=args
+                    )
+
+        # validate on all VALIDATION samples in this epoch
         for step, (image_embedding, gt2D, boxes, _) in enumerate(tqdm(val_dataloader, desc = f"[RANK {rank}: GPU {gpu}]")):
             if args.log_val_every is not None and epoch % args.log_val_every != 0:
                 break
-            with torch.no_grad():
-                boxes_np = boxes.detach().cpu().numpy()
-                #image, gt2D = image.to(device), gt2D.to(device)
-                image_embedding, gt2D = image_embedding.cuda(), gt2D.cuda()
-                
 
-                if args.use_amp:
-                    ## AMP
-                    with torch.autocast(device_type='cuda', dtype=torch.float16):
-                        medsam_pred = medsam_model(image_embedding, boxes_np)
-                        loss, class_losses, dice_class_losses, ce_class_losses = loss_handler(loss_type, medsam_pred, gt2D, class_weights_tensor, lambda_dice, args.as_one_hot, focal_alpha = focal_loss_set_alpha)
-                        if class_losses is not None:
-                            val_class_losses += class_losses.cpu()
-
-                        # generate predictions for validation dice scores
-                        medsam_binary_predictions_as_onehot = torch.from_numpy(convert_logits_to_preds_onehot(medsam_pred, args.as_one_hot, H=256, W=256))
-                        val_dice_scores_collected_list.append(dice_scores_multi_class(medsam_binary_predictions_as_onehot, gt2D))
-                else:
-                    medsam_pred = medsam_model(image_embedding, boxes_np)
-                    loss, class_losses, dice_class_losses, ce_class_losses = loss_handler(loss_type, medsam_pred, gt2D, class_weights_tensor, lambda_dice, args.as_one_hot, focal_alpha = focal_loss_set_alpha)
-                    if class_losses is not None:
-                        val_class_losses += class_losses.cpu()
-
-                    # generate predictions for validation dice scores
-                    medsam_binary_predictions_as_onehot = torch.from_numpy(convert_logits_to_preds_onehot(medsam_pred, args.as_one_hot, H=256, W=256))
-                    val_dice_scores_collected_list.append(dice_scores_multi_class(medsam_binary_predictions_as_onehot, gt2D))
-
-            val_epoch_loss += loss.item()
-
-            if args.fast_dev_run and step > 0:
+            if args.fast_dev_run and step > 1:
                 break
 
+            loss, class_losses, dice_class_losses, ce_class_losses, dice_scores_multiclass = validate_step(
+                medsam_model, optimizer, scaler, 
+                class_weights_tensor, lambda_dice, image_embedding, gt2D, boxes, args
+            )
+
+            if class_losses is not None: # if there are multiple classes
+                val_class_losses += class_losses.cpu() # collect losses for each class
+
+            val_dice_scores_collected_list.append(dice_scores_multiclass)
+            val_epoch_loss += loss.item()
+        
+        # calculate losses for this epoch and update the global train and val losses
+        # Note that loss calculation divides by the number of batches, thus sensitive to batch size
+        train_epoch_loss /= step+1
+        train_losses.append(train_epoch_loss)
         val_epoch_loss /= step+1
         val_losses.append(val_epoch_loss)
         val_class_losses /= step+1
-        print('Val Class Losses:')
-        print(val_class_losses)
-        # i think the loss calculation is a little funky right now because it divides by the number of batches
+
+        val_dice_scores = torch.cat(val_dice_scores_collected_list, dim=0).nanmean(dim=0) # stack list of (B, C) tensors by dim=0 and nanmean by dim=0
 
         # Check CUDA memory usage
         print_cuda_memory(gpu)
 
-        if args.use_wandb and is_main_host: 
-            wandb.log({"train_epoch_loss": train_epoch_loss,
-                        "val_epoch_loss": val_epoch_loss,
-                        "num_training_samples": total_number_of_training_examples_seen, 
-                        "epoch":epoch}, commit=True)
-
-            labels_to_track = list(range(NUM_CLASSES))
-            # log example segmentations on validation images
-
-            if not args.fast_dev_run and args.label_id is None and args.log_val_every is None: # if not dev-running and we are doing multi-task
-                print('plotting validation examples')
-                for i, label in enumerate(tqdm(labels_to_track)):
-                    text_label = label_converter.compressed_to_name(label)
-                    fig, _, _ = plot_random_example(val_dataset, model_list=[medsam_model.module],
-                                        names_list=[f'Label: {text_label}, Epoch: {epoch}'],
-                                        label_to_viz = label,
-                                        n_ex = 3,
-                                        seed = 182,
-                                        as_one_hot=args.as_one_hot)
-
-                    if fig is not None:
-                        wandb.log({f'val_images/class_{text_label}': fig})
-                        plt.close()
-                    
-                    fig, _ = plot_class_losses_vs_weights(val_class_losses, class_weights_tensor)
-                    wandb.log({'val_class_loss_vs_weights': wandb.Image(fig)})
-                    plt.close()
-            elif args.label_id is not None:
-                label_idx = 0 # single task so the "1" is actually at index 0
-                fig, _, _ = plot_random_example(val_dataset, model_list=[medsam_model.module],
-                                names_list=[f'Label: 1, Epoch: {epoch}'],
-                                label_to_viz = label_idx,
-                                n_ex = 3,
-                                seed = 182,
-                                as_one_hot = args.as_one_hot,
-                                model_trained_on_multi_label = args.label_id is None)
-                if fig is not None:
-                    wandb.log({f'val_images_examples/class_1': fig})
-                    plt.close()
-
-
-            # log validation dice scores
-            if not (args.log_val_every is not None and epoch%args.log_val_every!=0):
-                val_dice_scores = torch.cat(val_dice_scores_collected_list, dim=0).nanmean(dim=0) # stack list of (B, C) tensors by dim=0 and nanmean by dim=0
-                for class_num in range(NUM_CLASSES_FOR_LOSS):
-                    text_label = label_converter.compressed_to_name(class_num)
-                    wandb.log({f'val_dice_scores/class_{text_label}': val_dice_scores[class_num].item()})
-
-            # for pooled model, plot random bbox outputs
-            if args.pool_labels and epoch % 5 == 0:
-                
-                fig, ax = plot_random_bboxes(val_dataset, medsam_model.module, dev='cuda', n_ex = 5, seed=182)
-                if fig is not None:
-                    wandb.log({f'val_images/random_bbox': wandb.Image(fig)})
-                    plt.close()
-
-                
+        if is_main_host: 
+            # save epoch checkpoint
+            save_model_optimizer_and_epoch_to_checkpoint(
+                args=args, medsam_model=medsam_model, optimizer=optimizer, epoch=epoch, 
+                filename = os.path.join(model_save_path, 'medsam_model_latest.pth')
+            )
             
-        print(f'Time: {datetime.now().strftime("%Y%m%d-%H%M")}, Epoch: {epoch}, Train Loss: {train_epoch_loss}, Val Loss: {val_epoch_loss}')
-        # save the model checkpoint
-        if is_main_host:
-            checkpoint = {'model': medsam_model.state_dict(),
-                          'optimizer': optimizer.state_dict(),
-                          'epoch': epoch}
-            torch.save(checkpoint, join(model_save_path, 'medsam_model_latest.pth'))
-            
-            ## save the best model
+            # save the best model
             if val_epoch_loss < best_val_loss:
                 best_val_loss = val_epoch_loss
-                torch.save(checkpoint, join(model_save_path, 'medsam_model_best.pth'))
+                save_model_optimizer_and_epoch_to_checkpoint(
+                    args=args, medsam_model=medsam_model, optimizer=optimizer, epoch=epoch, 
+                    filename = os.path.join(model_save_path, 'medsam_model_best.pth')
+                )
+            
+            # log epoch-level metrics and example images
+            log_stuff_at_epoch(
+                train_epoch_loss=train_epoch_loss, val_epoch_loss=val_epoch_loss,
+                val_class_losses=val_class_losses, class_weights_tensor=class_weights_tensor,
+                val_dice_scores=val_dice_scores, epoch=epoch, 
+                total_number_of_training_examples_seen=total_number_of_training_examples_seen,
+                medsam_model=medsam_model, val_dataset=val_dataset, 
+                NUM_CLASSES=NUM_CLASSES, NUM_CLASSES_FOR_LOSS=NUM_CLASSES_FOR_LOSS,
+                label_converter=label_converter, args=args
+            )
+
+        print(f'Time: {datetime.now().strftime("%Y%m%d-%H%M")}, Epoch: {epoch}, Train Loss: {train_epoch_loss}, Val Loss: {val_epoch_loss}')
         torch.distributed.barrier()
     total_time = time.time() - start_time
     print('Training loop took %s seconds ---' % total_time)

@@ -59,12 +59,16 @@ class MedSAM(nn.Module):
         #ori_res_masks = F.interpolate(low_res_masks, size=(image.shape[2], image.shape[3]), mode='bilinear', align_corners=False)
         #return ori_res_masks
         return low_res_masks
-    
-def convert_logits_to_preds_onehot(logits, as_one_hot, H, W):
+
+def logits_to_pred_probs(logits, as_one_hot):
     if as_one_hot:
-        low_res_pred = torch.sigmoid(logits)  # (B, C, H, W)
+        pred_probs = torch.sigmoid(logits)  # (B, C, H, W)
     else:
-        low_res_pred = torch.softmax(logits, dim = 1) # (B, C, H, W)
+        pred_probs = torch.softmax(logits, dim = 1) # (B, C, H, W)
+    return pred_probs
+
+def convert_logits_to_preds_onehot(logits, as_one_hot, H, W):
+    low_res_pred = logits_to_pred_probs(logits, as_one_hot)
 
     low_res_pred = F.interpolate(
         low_res_pred,
