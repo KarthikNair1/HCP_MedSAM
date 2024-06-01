@@ -48,7 +48,9 @@ The goal of this project is to adapt the foundation model MedSAM (https://github
 
 ## Visualization
 <code>generate_gif_viz_for_mri_stack.ipynb</code>: Generates a segmentation .gif file given the .npy predicted segmentation from the inference generate_segmentation_for_mri notebooks. 
+
 <code>generate_matrix_viz_for_mri.ipynb</code>: Some more visualizations of segmentation of an MRI
+
 <code>medsam_embeddings_analysis</code> folder: An experiment which looked at what the MedSAM encoder layer is learning by looking at nearest neighbor MRI slices in encoding space.
 
 ## Other Experiments
