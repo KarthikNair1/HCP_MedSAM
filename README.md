@@ -33,6 +33,8 @@ The goal of this project is to adapt the foundation model MedSAM (https://github
 ## Inference
 <code>perform_inference_using_model_multinode.py</code>: Predicts segmentations for all MRI slices in the input path_df (by default, will perform for all train, val, and test MRI's).
 
+<code>generate_segmentation_for_mri.ipynb</code> and <code>generate_segmentation_for_mri_using_pooled.ipynb</code> are notebooks for generating segmentations on MRI's by a list of MRI ID's.
+
 <code>medsam_hcp_predict_basics.ipynb</code>: A tutorial notebook that walks through the steps in segmenting a CT scan and a brain MRI using MedSAM without any HCP finetuning. Useful for understanding the steps in prediction.
 
 <code>medsam_hcp_segment_using_pretraining_only.ipynb</code>: A notebook that explores using out-of-the-box MedSAM without any HCP-finetuning as a segmentation tool on HCP MRI's. Some examples are shown in the notebook.
@@ -45,7 +47,8 @@ The goal of this project is to adapt the foundation model MedSAM (https://github
 <code>analyze_eval_results_TEST.ipynb</code>: Analogous, but for the test results.
 
 ## Visualization
-<code>
-
+<code>generate_gif_viz_for_mri_stack.ipynb</code>: Generates a segmentation .gif file given the .npy predicted segmentation from the inference generate_segmentation_for_mri notebooks. 
+<code>generate_matrix_viz_for_mri.ipynb</code>: Some more visualizations of segmentation of an MRI
+<code>medsam_embeddings_analysis</code> folder: An experiment which looked at what the MedSAM encoder layer is learning by looking at nearest neighbor MRI slices in encoding space.
 
 ## Other Experiments
