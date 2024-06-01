@@ -105,17 +105,17 @@ def load_model_from_label_and_type(model_type, label):
         num_classes = 103 # have to pass in 103 here unfortunately because this model was accidentally trained to output 103 masks, even though only the first one is actually used and loss-propagated through
 
     return load_model(model_type, model_path, num_classes)
-def load_data_from_label_and_type(model_type, label, tag = 'val'):
-    df_hcp = pd.read_csv('/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv')
+def load_data_from_label_and_type(model_type, label, tag = 'val', args):
+    df_hcp = pd.read_csv(args.df_starting_mapping_path)
     if model_type in ['multitask_unprompted', 'pooltask_yolov7_prompted']:
-        df_desired = pd.read_csv('/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
+        df_desired = pd.read_csv(args.df_desired_path)
     else:
         df_desired = pd.read_csv(f'/gpfs/home/kn2347/MedSAM/class_mappings/label{label}_only_name_class_mapping.csv')
     NUM_CLASSES = len(df_desired)
     label_converter = LabelConverter(df_hcp, df_desired)
 
     # train val test split
-    train_test_splits_path = '/gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle'
+    train_test_splits_path = args.train_test_splits
     dicto = pickle.load(open(train_test_splits_path, 'rb'))
     ids = dicto[tag] # selects val or test ids, this should be a list
 
@@ -278,12 +278,18 @@ parser.add_argument("--model_type", type=str, choices = ['singletask_unprompted'
                                                           'singletask_yolov7_longer_prompted', 'pooltask_yolov7_prompted'])
 parser.add_argument("--label", type=str) # only relevant for singletask models?
 parser.add_argument("--tag", type=str, choices = ['val', 'test'])
+parser.add_argument('-train_test_splits', type=str,
+                    default='/gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle',
+                    help='path to pickle file containing a dictionary with train, val, and test IDs')
+parser.add_argument('--df_starting_mapping_path', type=str, default = '/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv', help = 'Path to dataframe holding the integer labels in the segmentation numpy files and the corresponding text label, prior to subsetting for only the labels we are interested in.')
+parser.add_argument('--df_desired_path', type=str, default = '/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
 parser.add_argument("--world_size", type=int, default=None)
 parser.add_argument("--node_rank", type=int, default=None)
+parser.add_argument('--output_dir', type=str, default = '/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/eval_results_test_10-13-23')
 args = parser.parse_args()
 
-df_hcp = pd.read_csv('/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv')
-df_desired = pd.read_csv('/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
+df_hcp = pd.read_csv(args.df_starting_mapping_path)
+df_desired = pd.read_csv(args.df_desired_path)
 NUM_CLASSES = len(df_desired)
 label_converter = LabelConverter(df_hcp, df_desired)
 
@@ -295,9 +301,9 @@ model = load_model_from_label_and_type(model_type, label)
 collector = run_model_over_dataset(model, dataset, model_type)
 
 if args.world_size is not None: # make sure to save with node number included
-    file_name = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/eval_results_test_10-13-23/eval_{model_type}_{tag}_label{label}_node{args.node_rank}.pkl'
+    file_name = os.path.join(args.output_dir, f'eval_{model_type}_{tag}_label{label}_node{args.node_rank}.pkl')
 else:
-    file_name = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/eval_results_test_10-13-23/eval_{model_type}_{tag}_label{label}.pkl'
+    file_name = os.path.join(args.output_dir, f'eval_{model_type}_{tag}_label{label}.pkl')
 with open(file_name, 'wb') as fp:
     pickle.dump(collector, fp)
     print('done!')

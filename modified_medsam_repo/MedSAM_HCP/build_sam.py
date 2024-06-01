@@ -107,3 +107,18 @@ def build_sam_vit_b_multiclass(num_classes, checkpoint=None):
 
         sam.load_state_dict(state_dict)
     return sam
+
+def resume_model_optimizer_and_epoch_from_checkpoint(args, rank, gpu, medsam_model, optimizer):
+    if os.path.isfile(args.resume):
+        print(rank, "=> loading checkpoint '{}'".format(args.resume))
+        ## Map model to be loaded to specified single GPU
+        loc = 'cuda:{}'.format(gpu)
+        checkpoint = torch.load(args.resume, map_location = loc)
+        start_epoch = checkpoint['epoch'] + 1
+        medsam_model.load_state_dict(checkpoint['model'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        print(rank, "=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
+        return medsam_model, optimizer, start_epoch
+    else:
+        print('Not a valid resume path')
+        return None, None, None

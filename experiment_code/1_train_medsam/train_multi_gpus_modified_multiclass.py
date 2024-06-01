@@ -36,9 +36,10 @@ import time
 
 from MedSAM_HCP.dataset import MRIDataset, load_datasets
 from MedSAM_HCP.MedSAM import MedSAM
-from MedSAM_HCP.build_sam import build_sam_vit_b_multiclass
+from MedSAM_HCP.build_sam import build_sam_vit_b_multiclass, resume_model_optimizer_and_epoch_from_checkpoint
 from MedSAM_HCP.utils_hcp import *
 from MedSAM_HCP.loss_funcs_hcp import *
+from MedSAM_HCP.logging_functions import *
 
 # set seeds
 torch.manual_seed(2023)
@@ -124,21 +125,27 @@ def main():
 
 
     ngpus_per_node = torch.cuda.device_count()
-    print("Spwaning processces")
+    print("Spawning processes")
     mp.spawn(main_worker, nprocs = ngpus_per_node, args=(ngpus_per_node, args))
 
 
 def main_worker(gpu, ngpus_per_node, args):
+
+    # Determine the rank of the current process in the distributed training setup
     node_rank = int(args.node_rank)
     rank = node_rank * ngpus_per_node + gpu
     world_size = args.world_size
     print(f"[Rank {rank}]: Use GPU: {gpu} for training")
+
+    # Check if the current process is the main host (rank )
     is_main_host = rank == 0
+
+    # If the current process is the main host, set up the model save directory and initialize wandb
     if is_main_host:
         os.makedirs(model_save_path, exist_ok=True)
         shutil.copyfile(__file__, join(model_save_path, run_id + '_' + os.path.basename(__file__)))
 
-        # initialize wandb project
+        # initialize wandb project if specified
         if args.use_wandb and is_main_host:
             import wandb
             wandb.login()
@@ -158,6 +165,7 @@ def main_worker(gpu, ngpus_per_node, args):
                         "label": args.label_id
                         })
             
+            # Define metrics for wandb
             wandb.define_metric('num_training_samples')
             wandb.define_metric('epoch')
             wandb.define_metric('train_step_loss', step_metric='num_training_samples')
@@ -166,8 +174,10 @@ def main_worker(gpu, ngpus_per_node, args):
             wandb.define_metric('label_1/*', step_metric='num_training_samples')
             wandb.define_metric('val_dice_scores/*', step_metric='num_training_samples', summary='max')
     
+    # Set the current GPU for PyTorch
     torch.cuda.set_device(gpu)
-    #device = torch.device("cuda:{}".format(gpu))
+
+    # Initialize the distributed process group
     torch.distributed.init_process_group(
         backend = "nccl",
         init_method = args.init_method,
@@ -175,10 +185,11 @@ def main_worker(gpu, ngpus_per_node, args):
         world_size = world_size
     )
     
-    #sam_model = sam_model_registry[args.model_type](checkpoint=args.checkpoint)
 
-
+    # load names of regions and corresponding label number per FreeSurfer
     df_hcp = pd.read_csv(args.df_starting_mapping_path)
+
+    # load names of desired subset of regions and corresponding label number in the range 0...102
     df_desired = pd.read_csv(args.df_desired_path)
     NUM_CLASSES = len(df_desired)
     NUM_CLASSES_FOR_LOSS = NUM_CLASSES
@@ -188,23 +199,24 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.pool_labels: # so that we only load the architecture to produce 3 masks, not 103 masks
        NUM_CLASSES = 1
 
-    label_converter = LabelConverter(df_hcp, df_desired)
+    label_converter = LabelConverter(df_hcp, df_desired) # compresses label numbers to range 0...102
+
+    # build SAM model from checkpoint
     sam_model = build_sam_vit_b_multiclass(num_classes=max(NUM_CLASSES, 3), checkpoint=args.checkpoint) # if single class, load original SAM model
     print(sam_model)
+
+    # initialize MedSAM model object using the loaded SAM model
     medsam_model = MedSAM(image_encoder=sam_model.image_encoder, 
                         mask_decoder=sam_model.mask_decoder,
                         prompt_encoder=sam_model.prompt_encoder,
                         multimask_output= args.label_id is None # 2 because unknown class is also present in single-task case
                     ).cuda()
-    cuda_mem_info = torch.cuda.mem_get_info(gpu)
-    free_cuda_mem, total_cuda_mem = cuda_mem_info[0]/(1024**3), cuda_mem_info[1]/(1024**3)
-    print(f'[RANK {rank}: GPU {gpu}] Total CUDA memory before DDP initialised: {total_cuda_mem} Gb')
-    print(f'[RANK {rank}: GPU {gpu}] Free CUDA memory before DDP initialised: {free_cuda_mem} Gb')
-    if rank % ngpus_per_node == 0:
-        print('Before DDP initialization:')
-        os.system('nvidia-smi')
 
+    # memory before model initialized
+    print(f'[RANK {rank}] Before DDP initialized:')
+    print_cuda_memory(gpu)
 
+    # Initialize the model for distributed training
     medsam_model = nn.parallel.DistributedDataParallel(
         medsam_model,
         device_ids = [gpu],
@@ -214,24 +226,20 @@ def main_worker(gpu, ngpus_per_node, args):
         bucket_cap_mb = args.bucket_cap_mb ## Too large -> comminitation overlap, too small -> unable to overlap with computation
     )
 
-    cuda_mem_info = torch.cuda.mem_get_info(gpu)
-    free_cuda_mem, total_cuda_mem = cuda_mem_info[0]/(1024**3), cuda_mem_info[1]/(1024**3)
-    print(f'[RANK {rank}: GPU {gpu}] Total CUDA memory after DDP initialised: {total_cuda_mem} Gb')
-    print(f'[RANK {rank}: GPU {gpu}] Free CUDA memory after DDP initialised: {free_cuda_mem} Gb')
-    if rank % ngpus_per_node == 0:
-        print('After DDP initialization:')
-        os.system('nvidia-smi')
+    # memory after model initialized
+    print(f'[RANK {rank}] After DDP initialized:')
+    print_cuda_memory(gpu)
 
+    # Set the model to training mode
     medsam_model.train()
 
-    print('Number of total parameters: ', sum(p.numel() for p in medsam_model.parameters())) # 93735472
-    print('Number of trainable parameters: ', sum(p.numel() for p in medsam_model.parameters() if p.requires_grad)) # 93729252
+    print('Number of total parameters: ', sum(p.numel() for p in medsam_model.parameters())) 
+    print('Number of trainable parameters: ', sum(p.numel() for p in medsam_model.parameters() if p.requires_grad))
 
-    ## Setting up optimiser and loss func
-    # only optimize the parameters of mask decoder, do not update prompt encoder or image_encoder
-    #img_mask_encdec_params = list(medsam_model.image_encoder.parameters()) + list(medsam_model.mask_decoder.parameters())
+    # Setting up optimiser and loss func
+    #     
     mask_dec_params = list(
-            medsam_model.module.mask_decoder.parameters()
+            medsam_model.module.mask_decoder.parameters() # only optimize the parameters of mask decoder, do not update prompt encoder or image_encoder
     )
     optimizer = torch.optim.AdamW(
         mask_dec_params,
@@ -239,13 +247,6 @@ def main_worker(gpu, ngpus_per_node, args):
         weight_decay=args.weight_decay
     )
     print('Number of mask decoder parameters: ', sum(p.numel() for p in mask_dec_params if p.requires_grad)) # 93729252
-    
-    #%% train
-    num_epochs = args.num_epochs
-    iter_num = 0
-    train_losses = []
-    val_losses = []
-    best_val_loss = 1e10
 
     train_dataset, val_dataset, test_dataset = load_datasets(args.data_frame_path, args.train_test_splits, args.label_id, bbox_shift=args.bbox_shift, sample_n_slices = args.sample_n_slices, label_converter=label_converter, NUM_CLASSES=NUM_CLASSES, as_one_hot=args.as_one_hot, pool_labels=args.pool_labels)
     
@@ -291,17 +292,10 @@ def main_worker(gpu, ngpus_per_node, args):
         sampler = val_sampler
     )
 
+    # if checkpoint specified, make sure to load model and optimizer from this checkpoint and resume from that epoch
     start_epoch = 0
     if args.resume is not None:
-        if os.path.isfile(args.resume):
-            print(rank, "=> loading checkpoint '{}'".format(args.resume))
-            ## Map model to be loaded to specified single GPU
-            loc = 'cuda:{}'.format(gpu)
-            checkpoint = torch.load(args.resume, map_location = loc)
-            start_epoch = checkpoint['epoch'] + 1
-            medsam_model.load_state_dict(checkpoint['model'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            print(rank, "=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
+        medsam_model, optimizer, start_epoch = resume_model_optimizer_and_epoch_from_checkpoint(args, rank, gpu, medsam_model, optimizer)
         torch.distributed.barrier()
     
     if args.use_amp:
@@ -311,6 +305,12 @@ def main_worker(gpu, ngpus_per_node, args):
     if not args.loss_reweighted:
         print('running WITHOUT reweighted loss')
 
+    # set up train parameters and loss trackers
+    num_epochs = args.num_epochs
+    iter_num = 0
+    train_losses = []
+    val_losses = []
+    best_val_loss = 1e10
     start_time = time.time()
     total_number_of_training_examples_seen = 0
     lambda_dice = args.lambda_dice
@@ -319,25 +319,25 @@ def main_worker(gpu, ngpus_per_node, args):
         loss_type = 'focal_loss'
     focal_loss_set_alpha = args.focal_loss_set_alpha
     
+    # training loop
     for epoch in range(start_epoch, num_epochs):
         train_epoch_loss = 0
         val_epoch_loss = 0
         train_dataloader.sampler.set_epoch(epoch)
         val_dataloader.sampler.set_epoch(epoch)
-        val_class_losses = torch.zeros((NUM_CLASSES_FOR_LOSS))
+        val_class_losses = torch.zeros((NUM_CLASSES_FOR_LOSS)) # calculated loss by class
         val_dice_scores_collected_list = []
 
         if epoch >= 1 and args.loss_switching:
             lambda_dice = 1
         
+        # learn from all training examples in this epoch
         for step, (image_embedding, gt2D, boxes, _) in enumerate(tqdm(train_dataloader, desc = f"[RANK {rank}: GPU {gpu}]")):
             
             optimizer.zero_grad()
             boxes_np = boxes.detach().cpu().numpy()
-            #image, gt2D = image.to(device), gt2D.to(device)
             image_embedding, gt2D = image_embedding.cuda(), gt2D.cuda()
             if args.use_amp:
-                ## AMP
                 with torch.autocast(device_type='cuda', dtype=torch.float16):
                     medsam_pred = medsam_model(image_embedding, boxes_np)
                     loss, class_losses, dice_class_losses, ce_class_losses = loss_handler(loss_type, medsam_pred, gt2D, class_weights_tensor, lambda_dice, args.as_one_hot, focal_alpha = focal_loss_set_alpha)
@@ -352,9 +352,10 @@ def main_worker(gpu, ngpus_per_node, args):
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
-
+            
             total_number_of_training_examples_seen += image_embedding.shape[0]
 
+            # if host process, log to wandb
             if is_main_host and args.use_wandb:
                 wandb.log({"train_step_loss": loss.item(),
                             'num_training_samples': total_number_of_training_examples_seen})
@@ -406,24 +407,17 @@ def main_worker(gpu, ngpus_per_node, args):
                         wandb.log({f'top5_worst5_losses_training_barplot': wandb.Image(fig)})
                         plt.close()
 
-                    
-                    
-
-
-
             train_epoch_loss += loss.item()
             iter_num += 1
 
+            # if fast_dev_run specified, exit training loop early
             if args.fast_dev_run and step == 4:
                 break
 
-            # if rank % ngpus_per_node == 0:
-            #     print('\n')
-            #     os.system('nvidia-smi')
-            #     print('\n')
         train_epoch_loss /= step+1
         train_losses.append(train_epoch_loss)
 
+        # validate on all validation samples in this epoch
         for step, (image_embedding, gt2D, boxes, _) in enumerate(tqdm(val_dataloader, desc = f"[RANK {rank}: GPU {gpu}]")):
             if args.log_val_every is not None and epoch % args.log_val_every != 0:
                 break
@@ -467,13 +461,7 @@ def main_worker(gpu, ngpus_per_node, args):
         # i think the loss calculation is a little funky right now because it divides by the number of batches
 
         # Check CUDA memory usage
-        cuda_mem_info = torch.cuda.mem_get_info(gpu)
-        free_cuda_mem, total_cuda_mem = cuda_mem_info[0]/(1024**3), cuda_mem_info[1]/(1024**3)
-        print('\n')
-        print(f'[RANK {rank}: GPU {gpu}] Total CUDA memory: {total_cuda_mem} Gb')
-        print(f'[RANK {rank}: GPU {gpu}] Free CUDA memory: {free_cuda_mem} Gb')
-        print(f'[RANK {rank}: GPU {gpu}] Used CUDA memory: {total_cuda_mem - free_cuda_mem} Gb')
-        print('\n')
+        print_cuda_memory(gpu)
 
         if args.use_wandb and is_main_host: 
             wandb.log({"train_epoch_loss": train_epoch_loss,

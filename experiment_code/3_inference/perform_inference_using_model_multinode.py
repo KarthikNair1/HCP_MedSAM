@@ -1,3 +1,5 @@
+# Runs inference on all train, val, and test samples and saves to a directory as .npy files for each slice
+
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -30,31 +32,42 @@ from MedSAM_HCP.loss_funcs_hcp import *
 import argparse
 
 
-
 parser = argparse.ArgumentParser()
+parser.add_argument("--model_path", type=str, help = 'As .pth file, e.g. /gpfs/home/kn2347/results/models_8-9-23/scratch_loss_reweighted_lr1e-4_ce_only_longer3_model_20230804-133537/model_best.pth')
+parser.add_argument('--data_frame_path', type=str,
+                    default='/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv',
+                    help='path to pandas dataframe with all paths for inference')
+parser.add_argument('--train_test_splits', type=str,
+                    default='/gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle',
+                    help='path to pickle file containing a dictionary with train, val, and test IDs')
+parser.add_argument('--df_starting_mapping_path', type=str, default = '/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv', help = 'Path to dataframe holding the integer labels in the segmentation numpy files and the corresponding text label, prior to subsetting for only the labels we are interested in.')
+parser.add_argument('--df_desired_path', type=str, default = '/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
+parser.add_argument('--output_dir', type=str, default = '/gpfs/data/luilab/karthik/pediatric_seg_proj/saved_round1_segmentations_bbox', help='Output directory for predicted segmentation files')
+parser.add_argument("--num_nodes", type=int, default = 1)
 parser.add_argument("--node_rank", type=int)
+
 args = parser.parse_args()
 
-df_hcp = pd.read_csv('/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv')
-df_desired = pd.read_csv('/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
+df_hcp = pd.read_csv(args.df_starting_mapping_path)
+df_desired = pd.read_csv(args.df_desired_path)
 NUM_CLASSES = len(df_desired)
 label_converter = LabelConverter(df_hcp, df_desired)
 
-model = build_sam_vit_b_multiclass(num_classes=NUM_CLASSES, checkpoint='/gpfs/home/kn2347/results/models_8-9-23/scratch_loss_reweighted_lr1e-4_ce_only_longer3_model_20230804-133537/model_best.pth')
+model = build_sam_vit_b_multiclass(num_classes=NUM_CLASSES, checkpoint=args.model_path)
 medsam_model = MedSAM(image_encoder=model.image_encoder, 
                         mask_decoder=model.mask_decoder,
                         prompt_encoder=model.prompt_encoder
                         ).cuda()
 
-num_nodes = 1
+num_nodes = args.num_nodes
 this_node_rank = args.node_rank
 fracs = np.linspace(0, 1, num_nodes+1)
 
 # load dataframe of slice paths
-path_df = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv')
+path_df = pd.read_csv(args.data_frame_path)
 
 # load train val test ids
-dicto = pickle.load(open('/gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle', 'rb'))
+dicto = pickle.load(open(args.train_test_splits, 'rb'))
 train_ids = dicto['train']
 val_ids = dicto['val']
 test_ids = dicto['test']
@@ -101,7 +114,7 @@ dataloader = DataLoader(
         pin_memory = True
 )
 
-rt_path = '/gpfs/data/luilab/karthik/pediatric_seg_proj/saved_round1_segmentations_bbox'
+rt_path = args.output_dir
 
 for step, (image_embedding, gt2D, boxes, slice_names) in enumerate(tqdm(dataloader)):
     image_embedding, gt2D, boxes = image_embedding.cuda(), gt2D.cuda(), boxes.cuda()
