@@ -13,6 +13,8 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import monai
 from monai.networks import one_hot
+import sys
+sys.path.append('./modified_medsam_repo')
 from segment_anything import SamPredictor, sam_model_registry
 from segment_anything.utils.transforms import ResizeLongestSide
 from utils.SurfaceDice import compute_dice_coefficient

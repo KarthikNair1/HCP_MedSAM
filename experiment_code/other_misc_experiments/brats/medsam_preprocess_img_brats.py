@@ -6,6 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import torch
+import sys
+sys.path.append('./modified_medsam_repo')
 from segment_anything import sam_model_registry
 from skimage import io, transform
 import torch.nn.functional as F

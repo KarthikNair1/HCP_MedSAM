@@ -11,6 +11,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import torch.multiprocessing as mp
 import monai
+import sys
+sys.path.append('./modified_medsam_repo')
 from segment_anything import sam_model_registry
 import torch.nn.functional as F
 import argparse

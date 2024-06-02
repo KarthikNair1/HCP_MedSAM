@@ -19,7 +19,8 @@ from adjustText import adjust_text
 import seaborn as sns
 import scipy
 import statannot
-
+import sys
+sys.path.append('./modified_medsam_repo')
 from MedSAM_HCP.utils_hcp import *
 from MedSAM_HCP.dataset3d import MRIDataset3D, load_datasets_3d
 from MedSAM_HCP.MedSAM3d import MedSAM3D, convert_logits_to_preds_onehot_3d

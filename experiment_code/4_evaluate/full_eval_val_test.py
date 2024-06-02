@@ -20,7 +20,8 @@ import seaborn as sns
 import scipy
 import statannot
 import argparse
-
+import sys
+sys.path.append('./modified_medsam_repo')
 from MedSAM_HCP.utils_hcp import *
 from MedSAM_HCP.dataset import *
 

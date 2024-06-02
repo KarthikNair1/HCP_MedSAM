@@ -13,7 +13,8 @@ import scipy
 import torch.nn.functional as F
 from PIL import Image
 from glob import glob
-
+import sys
+sys.path.append('./modified_medsam_repo')
 from MedSAM_HCP.utils_hcp import *
 
 def read_format_table(path, read_gt = False):
