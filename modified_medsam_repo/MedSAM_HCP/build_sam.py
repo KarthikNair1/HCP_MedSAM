@@ -2,6 +2,7 @@ from functools import partial
 from pathlib import Path
 import urllib.request
 import torch
+import os
 
 from segment_anything.modeling import (
     ImageEncoderViT,

@@ -10,7 +10,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import torch.multiprocessing as mp
 import monai
-from segment_anything import sam_model_registry
+
 import torch.nn.functional as F
 import argparse
 import random
@@ -21,7 +21,9 @@ import pandas as pd
 import nibabel as nib
 import pickle
 import time
-
+import sys
+sys.path.append('./modified_medsam_repo')
+from segment_anything import sam_model_registry
 from MedSAM_HCP.dataset import MRIDataset, load_datasets
 from MedSAM_HCP.MedSAM import MedSAM, logits_to_pred_probs
 from MedSAM_HCP.build_sam import build_sam_vit_b_multiclass, resume_model_optimizer_and_epoch_from_checkpoint, save_model_optimizer_and_epoch_to_checkpoint
@@ -85,7 +87,7 @@ parser.add_argument('--bucket_cap_mb', type = int, default = 25,
                     help='The amount of memory in Mb that DDP will accumulate before firing off gradient communication for the bucket (need to tune)')
 parser.add_argument('--grad_acc_steps', type = int, default = 1,
                     help='Gradient accumulation steps before syncing gradients for backprop')
-parser.add_argument('--resume', type = str, default = '',
+parser.add_argument('--resume', type = str, default = None,
                     help="Resuming training from checkpoint")
 parser.add_argument('--init_method', type = str, default = "env://")
 parser.add_argument('--fast_dev_run', action='store_true', default=False, help='runs a single batch of training and validation')

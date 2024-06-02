@@ -9,7 +9,6 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import torch.multiprocessing as mp
 import monai
-from segment_anything import sam_model_registry
 import torch.nn.functional as F
 import argparse
 import random
@@ -21,6 +20,9 @@ import nibabel as nib
 import pickle
 import time
 from PIL import Image
+import sys
+sys.path.append('./modified_medsam_repo')
+from segment_anything import sam_model_registry
 from MedSAM_HCP.dataset import MRIDataset_Imgs, load_datasets
 from MedSAM_HCP.MedSAM import MedSAM
 from MedSAM_HCP.build_sam import build_sam_vit_b_multiclass
