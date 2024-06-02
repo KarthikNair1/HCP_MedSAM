@@ -12,13 +12,13 @@ The goal of this project is to adapt the foundation model MedSAM (https://github
 2.  Create a conda virtual environment using <code>conda env create --name medsam_hcp --file=environments.yml</code>
 3. Enter the <code>modified_medsam_repo</code> folder and run <code>pip install -e .</code> to install the MedSAM library
    
-## Results
 
-
+## Data
+The HCP MRI data that this uses is housed at <code>/gpfs/data/cbi/hcp/hcp_seg/data_orig</code> on BigPurple. And the extracted .png files and numpy's holding the segmentation labels for every MRI are at <code>/gpfs/data/cbi/hcp/hcp_ya/hcp_ya_slices_npy/dir_structure_for_yolov7</code> and <code>/gpfs/data/cbi/hcp/hcp_ya/hcp_ya_slices_npy/segmentation_slices</code> respectively. 
 
 ## Preprocessing
 
-<code>medsam_preprocess_img.py</code>: Passes all MRI slices through the encoder component of MedSAM and saves embeddings as .npy files. These .npy files are used as input for downstream MedSAM finetuning. Note that this means that the encoder is not trained during the training phase, only the decoder.
+<code>medsam_preprocess_img.py</code>: Passes all MRI slices through the encoder component of MedSAM and saves embeddings as .npy files. These .npy files are used as input for downstream MedSAM finetuning. Note that this means that the encoder is not trained during the training phase, only the decoder. These encodings have been generated already and are available on BigPurple at <code>/gpfs/data/cbi/hcp/hcp_ya/hcp_ya_slices_npy/pretrained_image_encoded_slices</code>.
 
 <code>generate_path_df_and_training_split.py</code>: Generates dataframe pointing to all paths for embeddings and segmentation npy's. This dataframe is used for all downstream machine learning. Additionally, a train-val-test split is generated and saved. This split should be generated only once to ensure reproducibility.
 
