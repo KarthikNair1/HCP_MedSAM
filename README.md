@@ -14,7 +14,11 @@ The goal of this project is to adapt the foundation model MedSAM (https://github
    
 
 ## Data
-The HCP MRI data that this uses is housed at <code>/gpfs/data/cbi/hcp/hcp_seg/data_orig</code> on BigPurple. And the extracted .png files and numpy's holding the segmentation labels for every MRI are at <code>/gpfs/data/cbi/hcp/hcp_ya/hcp_ya_slices_npy/dir_structure_for_yolov7</code> and <code>/gpfs/data/cbi/hcp/hcp_ya/hcp_ya_slices_npy/segmentation_slices</code> respectively. 
+All data is available on BigPurple.
+
+- Raw HCP MRI data and freesurfer segmentations as .mgz files: <code>/gpfs/data/cbi/hcp/hcp_seg/data_orig</code>
+- .png's for all MRI slices: <code>/gpfs/data/cbi/hcp/hcp_ya/hcp_ya_slices_npy/dir_structure_for_yolov7</code>
+- Segmentation label .npy's for all MRI slices: <code>/gpfs/data/cbi/hcp/hcp_ya/hcp_ya_slices_npy/segmentation_slices</code>
 
 ## Preprocessing
 
