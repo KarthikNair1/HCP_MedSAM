@@ -2,17 +2,16 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=10
-#SBATCH --job-name=singletask_unet
+#SBATCH --job-name=singletask_medsam
 #SBATCH --mem=100GB
 #SBATCH --gres=gpu:1
 #SBATCH --partition=a100_short
 
-#SBATCH --output=/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass/medsam_mgpus_%x-%j.out
-#SBATCH --error=/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass/medsam_mgpus_%x-%j.err
-#SBATCH --time=04:00:00
-#SBATCH --array=25,6,21
-###SBATCH --exclude=a100-4023,a100-4024,a100-4018,a100-4019
-
+#SBATCH --output=logs/medsam_mgpus_%x-%j.out
+#SBATCH --error=logs/medsam_mgpus_%x-%j.err
+#SBATCH --time=3-00:00:00
+#SBATCH --array=1
+#SBATCH --exclude=a100-4020,a100-4023,a100-4017,a100-4018,a100-4019,a100-4011
 cd /gpfs/home/kn2347/HCP_MedSAM_project
 set -x -e
 
@@ -78,19 +77,40 @@ export WANDB_CONFIG_DIR='/gpfs/home/kn2347/.config/wandb'
 export WANDB_DIR='/gpfs/home/kn2347/wandb'
 #export CUDA_VISIBLE_DEVICES='0,1,2,3'
 #export CUDA_VISIBLE_DEVICES='0'
-export CUDA_VISIBLE_DEVICES='0'
+export CUDA_VISIBLE_DEVICES='0,1'
+
+export work_dir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/singletask_medsam_testing_some_stuff_out'
+export LR=0.0005
+
 for (( i=0; i < $SLURM_NTASKS; ++i ))
 do
     srun -lN1 --mem=100G --gres=gpu:1 -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
-    "python experiment_code/2_train_unet/train_unet.py \
-    --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/baseline_unet/all_labels_df.csv \
-    -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
-    --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
-    --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv \
-    -label_id ${SLURM_ARRAY_TASK_ID} -num_classes 1 -batch_size 64 -num_workers 2 \
-    -lr .00032 \
-    -work_dir /gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass \
-    -project_name singletask_unet -wandb_run_name label${SLURM_ARRAY_TASK_ID}" >> /gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass/log_for_${SLURM_JOB_ID}.log 2>&1 &
+    "python experiment_code/1_train_medsam/train_multi_gpus_modified_multiclass.py \
+        --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv \
+        --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
+        --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/class_mappings/label${SLURM_ARRAY_TASK_ID}_only_name_class_mapping.csv \
+        -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
+        -task_name singletask_medsam_no_yolo \
+        --wandb_run_name label${SLURM_ARRAY_TASK_ID}_lr_${LR}_training_lr5e-4 \
+        -checkpoint /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/medsam_vit_b.pth \
+        -work_dir ${work_dir} \
+        -label_id 1 \
+        -batch_size 256 \
+        -num_workers 4 \
+        -num_epochs 30 \
+        --lambda_dice 0 \
+        -lr ${LR} \
+        -use_wandb True \
+        -use_amp \
+        --fast_dev_run \
+        --early_stop_delta 0.005 \
+        --early_stop_patience 3 \
+        --suppress_train_debug_imgs \
+        --world_size ${WORLD_SIZE} \
+        --bucket_cap_mb 25 \
+        --grad_acc_steps 1 \
+        --node_rank ${i} \
+        --init_method tcp://${MASTER_ADDR}:${MASTER_PORT}" >> ${work_dir}/label${SLURM_ARRAY_TASK_ID}.log 2>&1 &
 done
 wait ## Wait for the tasks on nodes to finish
 

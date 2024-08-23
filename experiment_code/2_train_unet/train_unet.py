@@ -70,10 +70,19 @@ parser.add_argument('-num_classes', type=int, default=1)
 parser.add_argument('-batch_size', type=int, default=64)
 parser.add_argument('-num_workers', type=int, default=2)
 parser.add_argument('-lr', type=float, default=1e-4 * 32)
+parser.add_argument('-epochs', type=int, default=40)
 parser.add_argument('-freeze_encoder', type=bool, default=True)
 parser.add_argument('-project_name', type=str, default='test')
 parser.add_argument('-wandb_run_name', type=str, default=None)
 parser.add_argument('-work_dir', type=str, default='./work_dir')
+
+parser.add_argument('--log_val_every', type=int, default=None)
+
+parser.add_argument('--early_stop_delta', type=float, default=None,
+                    help='early stopping delta, as a percent of the prior loss (e.g. at least 1 percent improvement in loss each epoch')
+
+parser.add_argument('--early_stop_patience', type=int, default=None,
+                    help='number of epochs without sufficient delta until exiting')
 
 #parser.add_argument('-output_folder_name', type=str, default=None)
 
@@ -177,39 +186,50 @@ max_score = 0
 
 early_stop_ctr = 0
 early_stop_prev_loss = 9e9
-early_stop_cutoff = 3
+early_stop_cutoff = args.early_stop_patience
 
-for i in range(0, 40):
+for i in range(0, args.epochs):
     
     print('\nEpoch: {}'.format(i))
     train_logs = train_epoch.run(train_loader)
-    valid_logs = valid_epoch.run(valid_loader)
 
-    print(valid_logs)
+    if i == 25:
+        optimizer.param_groups[0]['lr'] = lr / 10
+        print('Decrease decoder learning rate 10-fold!')
 
     wandb.log({
-                'epoch': i,
-                'train_dice_loss': train_logs['dice_ce_loss'],
-                'train_iou_score': train_logs['iou_score'],
-                'train_dice_score': train_logs['fscore'],
-                'val_dice_loss': valid_logs['dice_ce_loss'],
-                'val_iou_score': valid_logs['iou_score'],
-                'val_dice_score': valid_logs['fscore']
-                })
+        'epoch': i,
+        'train_dice_loss': train_logs['dice_ce_loss'],
+        'train_iou_score': train_logs['iou_score'],
+        'train_dice_score': train_logs['fscore']
+    })
+    
+    skip_val = args.log_val_every is not None and i % args.log_val_every != 0
+    if skip_val:
+        continue
+
+    valid_logs = valid_epoch.run(valid_loader)
+
+    wandb.log({
+        'epoch': i,
+        'val_dice_loss': valid_logs['dice_ce_loss'],
+        'val_iou_score': valid_logs['iou_score'],
+        'val_dice_score': valid_logs['fscore']
+    })
+
+    print(valid_logs)
     
     # do something (save model, change lr, etc.)
     if max_score < valid_logs['iou_score']:
         max_score = valid_logs['iou_score']
         torch.save(model, model_save_path + '-best_model.pth')
         print('Model saved!')
-    if i == 25:
-        optimizer.param_groups[0]['lr'] = lr / 10
-        print('Decrease decoder learning rate 10-fold!')
 
-    if early_stop_prev_loss - valid_logs['dice_ce_loss'] <= 0.005:
+    early_stop_pct = (early_stop_prev_loss - valid_logs['dice_ce_loss']) / early_stop_prev_loss
+    if early_stop_pct < args.early_stop_delta:
         # if it doesn't decrease by at least 0.001, increment counter
         early_stop_ctr += 1
-        if early_stop_ctr >= early_stop_cutoff:
+        if early_stop_ctr > early_stop_cutoff:
             # need to terminate
             print('Early stop criterion reached')
             break

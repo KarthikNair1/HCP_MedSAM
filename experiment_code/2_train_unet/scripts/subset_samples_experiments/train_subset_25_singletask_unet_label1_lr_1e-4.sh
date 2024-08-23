@@ -6,12 +6,9 @@
 #SBATCH --mem=100GB
 #SBATCH --gres=gpu:1
 #SBATCH --partition=a100_short
-
-#SBATCH --output=/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass/medsam_mgpus_%x-%j.out
-#SBATCH --error=/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass/medsam_mgpus_%x-%j.err
-#SBATCH --time=04:00:00
-#SBATCH --array=25,6,21
-###SBATCH --exclude=a100-4023,a100-4024,a100-4018,a100-4019
+#SBATCH --time=1-00:00:00
+#SBATCH --array=1
+#SBATCH --exclude=a100-4023,a100-4024,a100-4018,a100-4019
 
 cd /gpfs/home/kn2347/HCP_MedSAM_project
 set -x -e
@@ -79,18 +76,24 @@ export WANDB_DIR='/gpfs/home/kn2347/wandb'
 #export CUDA_VISIBLE_DEVICES='0,1,2,3'
 #export CUDA_VISIBLE_DEVICES='0'
 export CUDA_VISIBLE_DEVICES='0'
+export pct_subsample=25
+export work_dir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/subset_experiments_singletask_unet_8-21-24'
+mkdir -p ${work_dir}/${SLURM_ARRAY_TASK_ID}/${pct_subsample}
 for (( i=0; i < $SLURM_NTASKS; ++i ))
 do
     srun -lN1 --mem=100G --gres=gpu:1 -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
     "python experiment_code/2_train_unet/train_unet.py \
     --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/baseline_unet/all_labels_df.csv \
-    -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
+    -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/subset_train_id_dfs_pooled/${pct_subsample}.pkl \
     --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
     --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv \
     -label_id ${SLURM_ARRAY_TASK_ID} -num_classes 1 -batch_size 64 -num_workers 2 \
-    -lr .00032 \
-    -work_dir /gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass \
-    -project_name singletask_unet -wandb_run_name label${SLURM_ARRAY_TASK_ID}" >> /gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass/log_for_${SLURM_JOB_ID}.log 2>&1 &
+    -lr .0001 \
+    -epochs 50000 \
+    -work_dir ${work_dir}/${SLURM_ARRAY_TASK_ID}/${pct_subsample} \
+    --early_stop_delta 0.005 \
+    --early_stop_patience 10 \
+    -project_name singletask_unet -wandb_run_name label${SLURM_ARRAY_TASK_ID}_subsample_${pct_subsample}%_training" >> ${work_dir}/${SLURM_ARRAY_TASK_ID}/${pct_subsample}/log_${SLURM_JOBID}.log 2>&1 &
 done
 wait ## Wait for the tasks on nodes to finish
 

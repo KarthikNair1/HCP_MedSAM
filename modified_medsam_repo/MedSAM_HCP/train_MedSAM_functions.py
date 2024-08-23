@@ -20,7 +20,7 @@ from MedSAM_HCP.build_sam import build_sam_vit_b_multiclass, resume_model_optimi
 from MedSAM_HCP.utils_hcp import *
 from MedSAM_HCP.loss_funcs_hcp import *
 from MedSAM_HCP.logging_functions import init_wandb, print_cuda_memory, log_losses_step, log_predicted_probabilities, log_class_losses_as_barplots
-
+import wandb
 
 def retrieve_class_weights_tensor(NUM_CLASSES_FOR_LOSS, label_converter, args):
     if args.class_weights_dict_path is not None and args.loss_reweighted:
@@ -43,7 +43,7 @@ def retrieve_class_weights_tensor(NUM_CLASSES_FOR_LOSS, label_converter, args):
     
     return class_weights_tensor
 
-def train_step(medsam_model, optimizer, scaler, class_weights_tensor, lambda_dice, image_embedding, gt2D, boxes, args):
+def train_step(medsam_model, optimizer, scaler, loss_type, class_weights_tensor, lambda_dice, image_embedding, gt2D, boxes, args):
 
     optimizer.zero_grad()
     boxes_np = boxes.detach().cpu().numpy()
@@ -66,7 +66,7 @@ def train_step(medsam_model, optimizer, scaler, class_weights_tensor, lambda_dic
     
     return loss, class_losses, dice_class_losses, ce_class_losses, medsam_pred
 
-def validate_step(medsam_model, optimizer, scaler, class_weights_tensor, lambda_dice, image_embedding, gt2D, boxes, args):
+def validate_step(medsam_model, optimizer, scaler, loss_type, class_weights_tensor, lambda_dice, image_embedding, gt2D, boxes, args):
     with torch.no_grad():
         boxes_np = boxes.detach().cpu().numpy()
         image_embedding, gt2D = image_embedding.cuda(), gt2D.cuda()
@@ -74,14 +74,14 @@ def validate_step(medsam_model, optimizer, scaler, class_weights_tensor, lambda_
         if args.use_amp:
             with torch.autocast(device_type='cuda', dtype=torch.float16):
                 medsam_pred = medsam_model(image_embedding, boxes_np)
-                loss, class_losses, dice_class_losses, ce_class_losses = loss_handler(loss_type, medsam_pred, gt2D, class_weights_tensor, lambda_dice, args.as_one_hot, focal_alpha = focal_loss_set_alpha)
+                loss, class_losses, dice_class_losses, ce_class_losses = loss_handler(loss_type, medsam_pred, gt2D, class_weights_tensor, lambda_dice, args.as_one_hot, focal_alpha = args.focal_loss_set_alpha)
 
                 # generate predictions for validation dice scores
                 medsam_binary_predictions_as_onehot = torch.from_numpy(convert_logits_to_preds_onehot(medsam_pred, args.as_one_hot, H=256, W=256))
                 dice_scores_multiclass = dice_scores_multi_class(medsam_binary_predictions_as_onehot, gt2D)
         else:
             medsam_pred = medsam_model(image_embedding, boxes_np)
-            loss, class_losses, dice_class_losses, ce_class_losses = loss_handler(loss_type, medsam_pred, gt2D, class_weights_tensor, lambda_dice, args.as_one_hot, focal_alpha = focal_loss_set_alpha)
+            loss, class_losses, dice_class_losses, ce_class_losses = loss_handler(loss_type, medsam_pred, gt2D, class_weights_tensor, lambda_dice, args.as_one_hot, focal_alpha = args.focal_loss_set_alpha)
 
             # generate predictions for validation dice scores
             medsam_binary_predictions_as_onehot = torch.from_numpy(convert_logits_to_preds_onehot(medsam_pred, args.as_one_hot, H=256, W=256))
@@ -92,7 +92,7 @@ def validate_step(medsam_model, optimizer, scaler, class_weights_tensor, lambda_
 
 def log_stuff_at_step(loss, class_losses, dice_class_losses, ce_class_losses, medsam_pred, 
                     total_number_of_training_examples_seen, medsam_model, val_dataset,
-                    epoch, args):
+                    epoch, label_converter, args):
     # assumes this is the host process
     if not args.use_wandb:
         return
@@ -110,7 +110,7 @@ def log_stuff_at_step(loss, class_losses, dice_class_losses, ce_class_losses, me
     wandb.log({"label_1/label1_avg_prediction": wandb.Image(fig)})
 
     # plot class-wise losses as barplots if multitask
-    if class_losses is not None and args.label_id is not None: 
+    if class_losses is not None and args.is_multitask: 
         log_class_losses_as_barplots(
             fig_class_loss = plot_losses_for_classes(class_losses[1:]),
             fig_top_worst = plot_worst_k_best_k(class_losses[1:], k = 5, label_converter = label_converter)
@@ -124,7 +124,7 @@ def log_stuff_at_step(loss, class_losses, dice_class_losses, ce_class_losses, me
                         n_ex = 3,
                         seed = 182,
                         as_one_hot = args.as_one_hot,
-                        model_trained_on_multi_label = args.label_id is not None
+                        model_trained_on_multi_label = args.is_multitask
         )
         if fig is not None:
             wandb.log({f'train_images_debug_on_val/class_1': fig})
@@ -142,14 +142,17 @@ def log_stuff_at_epoch(train_epoch_loss, val_epoch_loss, val_class_losses, class
         return
 
     wandb.log({"train_epoch_loss": train_epoch_loss,
-                "val_epoch_loss": val_epoch_loss,
                 "num_training_samples": total_number_of_training_examples_seen, 
                 "epoch":epoch}, commit=True)
+
+    due_for_val_logging = not (args.log_val_every is not None and epoch % args.log_val_every!=0)
+    if due_for_val_logging:
+        wandb.log({"val_epoch_loss": val_epoch_loss}, commit = True)
 
     # log example segmentations on validation images
     if not args.fast_dev_run and args.log_val_every is None: # if not dev-running
 
-        if args.label_id is None: # if multitask
+        if args.is_multitask: # if multitask
             labels_to_track = list(range(NUM_CLASSES))
         else: # singletask
             labels_to_track = [0]
@@ -163,20 +166,20 @@ def log_stuff_at_epoch(train_epoch_loss, val_epoch_loss, val_class_losses, class
                                 n_ex = 3,
                                 seed = 182,
                                 as_one_hot=args.as_one_hot,
-                                model_trained_on_multi_label = args.label_id is not None)
+                                model_trained_on_multi_label = args.is_multitask)
 
             if fig is not None:
                 wandb.log({f'val_images/class_{text_label}': fig})
                 plt.close()
     
     # if multitask, plot class losses vs class weights
-    if args.label_id is not None: 
+    if args.is_multitask: 
             fig, _ = plot_class_losses_vs_weights(val_class_losses, class_weights_tensor)
             wandb.log({'val_class_loss_vs_weights': wandb.Image(fig)})
             plt.close()
 
     # log validation dice scores
-    if not (args.log_val_every is not None and epoch % args.log_val_every!=0): # if this epoch is due for logging, perform the logging
+    if due_for_val_logging: # if this epoch is due for logging, perform the logging
         for class_num in range(NUM_CLASSES_FOR_LOSS):
             text_label = label_converter.compressed_to_name(class_num)
             wandb.log({f'val_dice_scores/class_{text_label}': val_dice_scores[class_num].item()})

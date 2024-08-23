@@ -3,6 +3,7 @@ from pathlib import Path
 import urllib.request
 import torch
 import os
+from glob import glob
 
 from segment_anything.modeling import (
     ImageEncoderViT,
@@ -110,15 +111,22 @@ def build_sam_vit_b_multiclass(num_classes, checkpoint=None):
     return sam
 
 def resume_model_optimizer_and_epoch_from_checkpoint(args, rank, gpu, medsam_model, optimizer):
-    if os.path.isfile(args.resume):
-        print(rank, "=> loading checkpoint '{}'".format(args.resume))
+    if args.resume is None:
+        return None, None, None
+    
+    resume_path = glob(args.resume)
+    assert len(resume_path) == 1
+    resume_path = resume_path[0]
+
+    if os.path.isfile(resume_path):
+        print(rank, "=> loading checkpoint '{}'".format(resume_path))
         ## Map model to be loaded to specified single GPU
         loc = 'cuda:{}'.format(gpu)
-        checkpoint = torch.load(args.resume, map_location = loc)
+        checkpoint = torch.load(resume_path, map_location = loc)
         start_epoch = checkpoint['epoch'] + 1
         medsam_model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
-        print(rank, "=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
+        print(rank, "=> loaded checkpoint '{}' (epoch {})".format(resume_path, checkpoint['epoch']))
         return medsam_model, optimizer, start_epoch
     else:
         print('Not a valid resume path')

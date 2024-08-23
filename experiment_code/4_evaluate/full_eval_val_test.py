@@ -21,9 +21,12 @@ import scipy
 import statannot
 import argparse
 import sys
+#print(glob('../../*'))
 sys.path.append('./modified_medsam_repo')
 from MedSAM_HCP.utils_hcp import *
 from MedSAM_HCP.dataset import *
+import segmentation_models_pytorch as smp
+from segmentation_models_pytorch.encoders import get_preprocessing_fn
 
 # analyzes the following models:
 # singletask unprompted
@@ -32,6 +35,8 @@ from MedSAM_HCP.dataset import *
 # singletask yolov7-prompted
 # singletask yolov7-longer-prompted
 # pooltask yolov7-prompted
+
+# adding singletask-unet
 
 # for each model: compute its predictions on the validation and the test set
 # the following metrics are calculated for each class:
@@ -63,27 +68,31 @@ def load_model(model_type, model_path, num_classes):
 
     except (AttributeError):
         # already in the correct format
-        print('model path in sam readable format already')
+        print('model path in readable format already')
 
     if model_type == 'multitask_unprompted':
         model = build_sam_vit_b_multiclass(num_classes, checkpoint=model_path).to('cuda')
     elif model_type == 'pooltask_yolov7_prompted':
         model = build_sam_vit_b_multiclass(num_classes, checkpoint=model_path).to('cuda')
+    elif model_type == 'singletask_unet':
+        model = torch.load(model_path)
     else:
         # singletask model
         model = build_sam_vit_b_multiclass(3, checkpoint=model_path).to('cuda')
 
-
-
     model.eval()
     return model
-def load_model_from_label_and_type(model_type, label):
-    assert model_type in ['singletask_unprompted', 'multitask_unprompted',
+def load_model_from_label_and_type(model_type, label, explicit_model_path = None):
+    '''
+    options:['singletask_unprompted', 'multitask_unprompted',
                 'singletask_medsam_prompted', 'singletask_yolov7_prompted',
-                'singletask_yolov7_longer_prompted', 'pooltask_yolov7_prompted']
+                'singletask_yolov7_longer_prompted', 'pooltask_yolov7_prompted',
+                'singletask_unet']
+    '''
     
     if model_type == 'singletask_unprompted':
-        raise NotImplementedError
+        model_path = None
+        num_classes = 1
     elif model_type == 'multitask_unprompted':
         model_path = '/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/ce_only_resume_training_from_checkpoint_8-9-23/MedSAM_finetune_hcp_ya_constant_bbox_all_tasks-20230810-115803/medsam_model_best.pth'
         num_classes = 103
@@ -104,15 +113,30 @@ def load_model_from_label_and_type(model_type, label):
     elif model_type == 'pooltask_yolov7_prompted':
         model_path = '/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/pooled_labels_ckpt_continue_8-22-23/model_best_20230822-115028.pth'
         num_classes = 103 # have to pass in 103 here unfortunately because this model was accidentally trained to output 103 masks, even though only the first one is actually used and loss-propagated through
+    elif model_type == 'singletask_unet':
+        model_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/fifth_pass/singletask_unet-label{label}-*.pth'
+        listo = glob(model_path)
+        assert len(listo) == 1
+        model_path = listo[0]
+        num_classes = 1
+
+    if explicit_model_path is not None:
+        model_path = explicit_model_path
+        listo = glob(model_path)
+        assert len(listo) == 1
+        model_path = listo[0]
 
     return load_model(model_type, model_path, num_classes)
-def load_data_from_label_and_type(model_type, label, tag = 'val', args):
+def load_data_from_label_and_type(model_type, label, tag, args):
+    # e.g. tag = 'val' or 'test'
     df_hcp = pd.read_csv(args.df_starting_mapping_path)
-    if model_type in ['multitask_unprompted', 'pooltask_yolov7_prompted']:
+    if model_type in ['multitask_unprompted', 'pooltask_yolov7_prompted', 'singletask_unet', 'singletask_unprompted']:
         df_desired = pd.read_csv(args.df_desired_path)
     else:
         df_desired = pd.read_csv(f'/gpfs/home/kn2347/MedSAM/class_mappings/label{label}_only_name_class_mapping.csv')
     NUM_CLASSES = len(df_desired)
+    if model_type == 'singletask_unet':
+        NUM_CLASSES = 2
     label_converter = LabelConverter(df_hcp, df_desired)
 
     # train val test split
@@ -197,19 +221,28 @@ def load_data_from_label_and_type(model_type, label, tag = 'val', args):
 
         label_id = 1
         pool_labels = False
+    
+    elif model_type in ['singletask_unet']:
+        df = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/baseline_unet/all_labels_df.csv')
+        label_id = label
+        pool_labels = False
 
     
     df = df[df['id'].isin(ids)].reset_index(drop=True)
 
     if model_type =='pooltask_yolov7_prompted':
         dataset = MRIDatasetForPooled(df, label_id = label_id, bbox_shift=0, label_converter = label_converter, NUM_CLASSES=NUM_CLASSES, as_one_hot=True, pool_labels=pool_labels)
+    elif model_type == 'singletask_unet':
+        preprocess_input = get_preprocessing_fn('resnet18', pretrained='imagenet')
+        dataset = MRIDataset_Imgs(df, label_id = label_id, bbox_shift=0, label_converter = label_converter, NUM_CLASSES=NUM_CLASSES, as_one_hot=True, pool_labels=pool_labels, preprocess_fn=preprocess_input)
+        print(dataset[160][1])
     else:
         dataset = MRIDataset(df, label_id = label_id, bbox_shift=0, label_converter = label_converter, NUM_CLASSES=NUM_CLASSES, as_one_hot=True, pool_labels=pool_labels)
     
     return df_hcp, df_desired, NUM_CLASSES, label_converter, dataset
 
-def run_model_over_dataset(model, dataset, model_type):
-    batch_sz = 16   
+def run_model_over_dataset(model, dataset, model_type, args):
+    batch_sz = args.batch_size   
     dataloader = DataLoader(
         dataset,
         batch_size = batch_sz,
@@ -224,26 +257,33 @@ def run_model_over_dataset(model, dataset, model_type):
     for step, tup in enumerate(tqdm(dataloader)):
         if isinstance(dataset, MRIDatasetForPooled):
             image_embedding, gt2D, boxes, slice_names, label_nums = tup
+        elif isinstance(dataset, MRIDataset_Imgs):
+            image_embedding, gt2D = tup # "image_embedding" here is really just the tensor of the raw image since unet does not do pre-embedding
         else:
             image_embedding, gt2D, boxes, slice_names = tup
         
-        image_embedding, gt2D, boxes = image_embedding.cuda(), gt2D.cuda(), boxes.cuda()
-        medsam_pred = torch.as_tensor(
-            medsam_inference(model, image_embedding, boxes, 256, 256, as_one_hot=True,
-            model_trained_on_multi_label=(model_type=='multitask_unprompted'), num_classes = num_classes),
-            dtype=torch.uint8
-        ).cuda()
+        image_embedding, gt2D = image_embedding.cuda(), gt2D.cuda()
+        if model_type == 'singletask_unet':
+            pred = model(image_embedding).cuda()
+            pred = (pred > 0.5).to(torch.uint8)
+        else:
+            boxes = boxes.cuda()
+            pred = torch.as_tensor(
+                medsam_inference(model, image_embedding, boxes, 256, 256, as_one_hot=True,
+                model_trained_on_multi_label=(model_type=='multitask_unprompted'), num_classes = num_classes),
+                dtype=torch.uint8
+            ).cuda()
 
 
         if model_type == 'multitask_unprompted':
-            assert len(medsam_pred.shape) == 4 and medsam_pred.shape[1] == 103
+            assert len(pred.shape) == 4 and pred.shape[1] == 103 # (B,C,H,W)
             assert len(gt2D.shape) == 4 and gt2D.shape[1] == 103
         else:
-            assert len(medsam_pred.shape) == 4 and medsam_pred.shape[1] == 1
+            assert len(pred.shape) == 4 and pred.shape[1] == 1 # (B, C, H, W)
             assert len(gt2D.shape) == 4 and gt2D.shape[1] == 1
         
-        dices_no_mask = dice_scores_multi_class(medsam_pred, gt2D, eps=1e-6, mask_empty_class_images_with_nan = False)
-        collector['dice_sensitivity'].append(dice_scores_multi_class(medsam_pred, gt2D, eps=1e-6, mask_empty_class_images_with_nan = True))
+        dices_no_mask = dice_scores_multi_class(pred, gt2D, eps=1e-6, mask_empty_class_images_with_nan = False)
+        collector['dice_sensitivity'].append(dice_scores_multi_class(pred, gt2D, eps=1e-6, mask_empty_class_images_with_nan = True))
         collector['overall_dice'].append(dices_no_mask)
         B, classes, H, W = gt2D.shape
         gt2D_flattened = gt2D.view(B, classes, -1)
@@ -272,18 +312,20 @@ def run_model_over_dataset(model, dataset, model_type):
         collector['label_numbers'] = torch.concat(collector['label_numbers'])
     return collector
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_type", type=str, choices = ['singletask_unprompted', 'multitask_unprompted',
                                                           'singletask_medsam_prompted', 'singletask_yolov7_prompted',
-                                                          'singletask_yolov7_longer_prompted', 'pooltask_yolov7_prompted'])
-parser.add_argument("--label", type=str) # only relevant for singletask models?
+                                                          'singletask_yolov7_longer_prompted', 'pooltask_yolov7_prompted',
+                                                          'singletask_unet'])
+parser.add_argument("--explicit_model_path", type=str, default=None)
+parser.add_argument("--label", type=int) # only relevant for singletask models?
 parser.add_argument("--tag", type=str, choices = ['val', 'test'])
 parser.add_argument('-train_test_splits', type=str,
                     default='/gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle',
                     help='path to pickle file containing a dictionary with train, val, and test IDs')
-parser.add_argument('--df_starting_mapping_path', type=str, default = '/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv', help = 'Path to dataframe holding the integer labels in the segmentation numpy files and the corresponding text label, prior to subsetting for only the labels we are interested in.')
-parser.add_argument('--df_desired_path', type=str, default = '/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
+parser.add_argument('--batch_size', type=int, default = 16)
+parser.add_argument('--df_starting_mapping_path', type=str, default = '/gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv', help = 'Path to dataframe holding the integer labels in the segmentation numpy files and the corresponding text label, prior to subsetting for only the labels we are interested in.')
+parser.add_argument('--df_desired_path', type=str, default = '/gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv')
 parser.add_argument("--world_size", type=int, default=None)
 parser.add_argument("--node_rank", type=int, default=None)
 parser.add_argument('--output_dir', type=str, default = '/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/eval_results_test_10-13-23')
@@ -295,11 +337,12 @@ NUM_CLASSES = len(df_desired)
 label_converter = LabelConverter(df_hcp, df_desired)
 
 model_type = args.model_type
+explicit_model_path = args.explicit_model_path
 label = args.label
 tag = args.tag
-df_hcp, df_desired, num_classes, label_converter, dataset = load_data_from_label_and_type(model_type, label, tag = tag)
-model = load_model_from_label_and_type(model_type, label)
-collector = run_model_over_dataset(model, dataset, model_type)
+df_hcp, df_desired, num_classes, label_converter, dataset = load_data_from_label_and_type(model_type, label, tag = tag, args = args)
+model = load_model_from_label_and_type(model_type, label, explicit_model_path = explicit_model_path)
+collector = run_model_over_dataset(model, dataset, model_type, args)
 
 if args.world_size is not None: # make sure to save with node number included
     file_name = os.path.join(args.output_dir, f'eval_{model_type}_{tag}_label{label}_node{args.node_rank}.pkl')

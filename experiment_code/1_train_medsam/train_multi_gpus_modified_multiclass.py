@@ -49,8 +49,9 @@ parser.add_argument('-class_weights_dict_path', type=str,
                     help='path to pickle file containing a dictionary with keys as class numbers and values as weights for the loss function. class numbers should be according to HCP mapping')
 parser.add_argument('-task_name', type=str, default='MedSAM-ViT-B')
 parser.add_argument('-label_id', type=int, default=None)
+parser.add_argument('-is_multitask', action='store_true')
 parser.add_argument('-model_type', type=str, default='vit_b')
-parser.add_argument('-checkpoint', type=str, default='work_dir/SAM/sam_vit_b_01ec64.pth')
+parser.add_argument('-checkpoint', type=str, default='work_dir/SAM/sam_vit_b_01ec64.pth', help='')
 # parser.add_argument('-device', type=str, default='cuda:0')
 parser.add_argument('--load_pretrain', type=bool, default=True, 
                     help='')
@@ -88,7 +89,7 @@ parser.add_argument('--bucket_cap_mb', type = int, default = 25,
 parser.add_argument('--grad_acc_steps', type = int, default = 1,
                     help='Gradient accumulation steps before syncing gradients for backprop')
 parser.add_argument('--resume', type = str, default = None,
-                    help="Resuming training from checkpoint")
+                    help="Resuming training from checkpoint. Can use regex pattern, e.g. checkpt_label*.pth")
 parser.add_argument('--init_method', type = str, default = "env://")
 parser.add_argument('--fast_dev_run', action='store_true', default=False, help='runs a single batch of training and validation')
 parser.add_argument('--df_starting_mapping_path', type=str, default = '/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv', help = 'Path to dataframe holding the integer labels in the segmentation numpy files and the corresponding text label, prior to subsetting for only the labels we are interested in.')
@@ -99,6 +100,13 @@ parser.add_argument('--focal_loss', action='store_true', default = False)
 parser.add_argument('--focal_loss_set_alpha', action='store_true', default = False, help='should we use the inverse class frequency to weight the 0 and 1s in focal loss?')
 parser.add_argument('--log_val_every', type=int, default=None)
 
+parser.add_argument('--early_stop_delta', type=float, default=None,
+                    help='early stopping delta, as a percent of the prior loss (e.g. at least 1 percent improvement in loss each epoch')
+
+parser.add_argument('--early_stop_patience', type=int, default=None,
+                    help='number of epochs without sufficient delta until exiting')
+               
+
 args = parser.parse_args()
 
 if args.pool_labels and args.label_id is None: # this should not happen
@@ -106,7 +114,7 @@ if args.pool_labels and args.label_id is None: # this should not happen
 
 # device = args.device
 run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-model_save_path = join(args.work_dir, args.task_name + '-' + run_id)
+model_save_path = join(args.work_dir, args.task_name + '-' + args.wandb_run_name + '-' + run_id)
 
 def main():
     
@@ -160,11 +168,14 @@ def main_worker(gpu, ngpus_per_node, args):
     df_desired = pd.read_csv(args.df_desired_path)
 
 
-    is_multitask = args.label_id is None
-    NUM_CLASSES = len(df_desired)
-    NUM_CLASSES_FOR_LOSS = NUM_CLASSES
+    is_multitask = args.is_multitask
+    
     if is_multitask:
         NUM_CLASSES_FOR_LOSS = 1
+        NUM_CLASSES = len(df_desired)
+    elif not is_multitask:
+        NUM_CLASSES_FOR_LOSS = 1
+        NUM_CLASSES = 1
 
     if args.pool_labels: # so that we only load the architecture to produce 3 masks, not 103 masks
        NUM_CLASSES = 1
@@ -281,6 +292,10 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.focal_loss:
         loss_type = 'focal_loss'
     focal_loss_set_alpha = args.focal_loss_set_alpha
+
+    # early stop variables
+    prev_val_epoch_loss = 1e9
+    patience_counter = 0
     
     # training loop
     for epoch in range(start_epoch, num_epochs):
@@ -302,7 +317,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 break
 
             loss, class_losses, dice_class_losses, ce_class_losses, medsam_pred = train_step(
-                medsam_model, optimizer, scaler, class_weights_tensor, 
+                medsam_model, optimizer, scaler, loss_type, class_weights_tensor, 
                 lambda_dice, image_embedding, gt2D, boxes, args
             )
             
@@ -327,19 +342,22 @@ def main_worker(gpu, ngpus_per_node, args):
                         medsam_pred=medsam_pred, 
                         total_number_of_training_examples_seen=total_number_of_training_examples_seen,
                         medsam_model=medsam_model, val_dataset = val_dataset,
-                        epoch=epoch, args=args
+                        epoch=epoch, 
+                        label_converter = label_converter, args=args
                     )
-
+        skip_val = False
         # validate on all VALIDATION samples in this epoch
         for step, (image_embedding, gt2D, boxes, _) in enumerate(tqdm(val_dataloader, desc = f"[RANK {rank}: GPU {gpu}]")):
             if args.log_val_every is not None and epoch % args.log_val_every != 0:
+                skip_val = True
+                val_epoch_loss = 1e9
                 break
 
             if args.fast_dev_run and step > 1:
                 break
 
             loss, class_losses, dice_class_losses, ce_class_losses, dice_scores_multiclass = validate_step(
-                medsam_model, optimizer, scaler, 
+                medsam_model, optimizer, scaler, loss_type,
                 class_weights_tensor, lambda_dice, image_embedding, gt2D, boxes, args
             )
 
@@ -354,10 +372,12 @@ def main_worker(gpu, ngpus_per_node, args):
         train_epoch_loss /= step+1
         train_losses.append(train_epoch_loss)
         val_epoch_loss /= step+1
-        val_losses.append(val_epoch_loss)
+        if not skip_val:
+            val_losses.append(val_epoch_loss)
+            val_dice_scores = torch.cat(val_dice_scores_collected_list, dim=0).nanmean(dim=0) # stack list of (B, C) tensors by dim=0 and nanmean by dim=0
+
         val_class_losses /= step+1
 
-        val_dice_scores = torch.cat(val_dice_scores_collected_list, dim=0).nanmean(dim=0) # stack list of (B, C) tensors by dim=0 and nanmean by dim=0
 
         # Check CUDA memory usage
         print_cuda_memory(gpu)
@@ -370,7 +390,7 @@ def main_worker(gpu, ngpus_per_node, args):
             )
             
             # save the best model
-            if val_epoch_loss < best_val_loss:
+            if not skip_val and val_epoch_loss < best_val_loss:
                 best_val_loss = val_epoch_loss
                 save_model_optimizer_and_epoch_to_checkpoint(
                     args=args, medsam_model=medsam_model, optimizer=optimizer, epoch=epoch, 
@@ -387,6 +407,20 @@ def main_worker(gpu, ngpus_per_node, args):
                 NUM_CLASSES=NUM_CLASSES, NUM_CLASSES_FOR_LOSS=NUM_CLASSES_FOR_LOSS,
                 label_converter=label_converter, args=args
             )
+
+            if args.early_stop_delta is not None and not skip_val:
+                delta_loss = (prev_val_epoch_loss - val_epoch_loss) / prev_val_epoch_loss
+                if delta_loss < args.early_stop_delta:
+                    patience_counter += 1
+                    if patience_counter > args.early_stop_patience:
+                        print('Early stop criterion met')
+                        break
+                else:
+                    patience_counter = 0
+            if not skip_val:
+                prev_val_epoch_loss =  val_epoch_loss
+
+
 
         print(f'Time: {datetime.now().strftime("%Y%m%d-%H%M")}, Epoch: {epoch}, Train Loss: {train_epoch_loss}, Val Loss: {val_epoch_loss}')
         torch.distributed.barrier()

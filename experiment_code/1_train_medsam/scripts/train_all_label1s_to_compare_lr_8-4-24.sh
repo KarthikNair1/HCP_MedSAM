@@ -1,0 +1,5 @@
+sbatch /gpfs/home/kn2347/HCP_MedSAM_project/experiment_code/1_train_medsam/scripts/train_label1_singletask_models_no_yolo_crossentropy_loss_lr1e-3_8-2-24.sbatch
+# sbatch /gpfs/home/kn2347/HCP_MedSAM_project/experiment_code/1_train_medsam/scripts/train_label1_singletask_models_no_yolo_crossentropy_loss_lr1e-4_8-2-24.sbatch
+sbatch /gpfs/home/kn2347/HCP_MedSAM_project/experiment_code/1_train_medsam/scripts/train_label1_singletask_models_no_yolo_crossentropy_loss_lr1e-5_8-2-24.sbatch
+sbatch /gpfs/home/kn2347/HCP_MedSAM_project/experiment_code/1_train_medsam/scripts/train_label1_singletask_models_no_yolo_crossentropy_loss_lr5e-4_8-2-24.sbatch
+sbatch /gpfs/home/kn2347/HCP_MedSAM_project/experiment_code/1_train_medsam/scripts/train_label1_singletask_models_no_yolo_crossentropy_loss_lr5e-5_8-2-24.sbatch

@@ -136,9 +136,9 @@ def plot_random_example(test_ds, model_list, names_list, label_to_viz, as_one_ho
             # run inference
             for model in model_list:
                 
-
                 this_seg_result = medsam_inference(model, img_embedding, img_box, H=dest_H, W=dest_W, as_one_hot=as_one_hot,
                                                    model_trained_on_multi_label=model_trained_on_multi_label)
+
                 this_seg_result = np.reshape(this_seg_result, (C, dest_H, dest_W)) #(classes, dest_H,dest_W))
                 #if debug:
                     #print(f'seg shape: {this_seg_result.shape}')

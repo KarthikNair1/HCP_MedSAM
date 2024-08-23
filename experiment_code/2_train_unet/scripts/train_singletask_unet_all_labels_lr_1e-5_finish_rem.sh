@@ -7,11 +7,11 @@
 #SBATCH --gres=gpu:1
 #SBATCH --partition=a100_short
 
-#SBATCH --output=/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass/medsam_mgpus_%x-%j.out
-#SBATCH --error=/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass/medsam_mgpus_%x-%j.err
+#SBATCH --output=/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/lr1e-5/medsam_mgpus_%x-%j.out
+#SBATCH --error=/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/lr1e-5/medsam_mgpus_%x-%j.err
 #SBATCH --time=04:00:00
-#SBATCH --array=25,6,21
-###SBATCH --exclude=a100-4023,a100-4024,a100-4018,a100-4019
+#SBATCH --array=8,79
+#SBATCH --exclude=a100-4023,a100-4024,a100-4018,a100-4019
 
 cd /gpfs/home/kn2347/HCP_MedSAM_project
 set -x -e
@@ -88,9 +88,9 @@ do
     --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
     --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv \
     -label_id ${SLURM_ARRAY_TASK_ID} -num_classes 1 -batch_size 64 -num_workers 2 \
-    -lr .00032 \
-    -work_dir /gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass \
-    -project_name singletask_unet -wandb_run_name label${SLURM_ARRAY_TASK_ID}" >> /gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/small_pass/log_for_${SLURM_JOB_ID}.log 2>&1 &
+    -lr .00001 \
+    -work_dir /gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/lr1e-5 \
+    -project_name singletask_unet -wandb_run_name label${SLURM_ARRAY_TASK_ID}" >> /gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/lr1e-5/log_for_${SLURM_JOB_ID}.log 2>&1 &
 done
 wait ## Wait for the tasks on nodes to finish
 

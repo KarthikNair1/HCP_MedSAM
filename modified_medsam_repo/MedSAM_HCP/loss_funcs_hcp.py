@@ -42,6 +42,7 @@ def weighted_dice_loss(pred, gt, weights, as_one_hot=True):
     # pred must be pre-sigmoid values of shape (B,C,H,W)
     # gt has same shape but binary values (0 or 1)
     # weights must be tensor of shape (NUM_CLASSES)
+
     assert weights.shape[0] == pred.shape[1]
     if as_one_hot:
         B, C, H, W = pred.shape

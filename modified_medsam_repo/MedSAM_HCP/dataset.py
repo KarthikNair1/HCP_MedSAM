@@ -92,8 +92,13 @@ class MRIDataset(Dataset):
     
     def load_image(self, index):
         img_path = self.data_frame.loc[index, 'image_path']
-        slice_num = self.data_frame.loc[index, 'slice']
-        img = nib.load(img_path).get_fdata()[:,slice_num,:].astype(np.uint8)
+        imgo_obj = Image.open(img_path)
+        img = np.array(imgo_obj) # 256,256,3
+        img = img[:, :, 0] # 256,256
+        print(img.min())
+        print(img.max())
+        #slice_num = self.data_frame.loc[index, 'slice']
+        #img = nib.load(img_path).get_fdata()[:,slice_num,:].astype(np.uint8)
         return img # returns as (256, 256)
 class MRIDatasetForPooled(MRIDataset):
     def __init__(self, data_frame, label_id=None, bbox_shift=0, label_converter=None, NUM_CLASSES = 256, as_one_hot = True, pool_labels = False):
