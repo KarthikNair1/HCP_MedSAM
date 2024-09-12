@@ -5,8 +5,8 @@ Single-task MedSAM vs Single-task UNet
 
 | Model    | Learning Rate | Epochs | Median Validation Dice Score
 | -------- | -------       | -------| -------
-| MedSAM   | $1*10^{-3}$   | 5  | 
-| UNet     | $5*10^{-4}$   | 5     | 0.758
+| MedSAM   | $1*10^{-3}$   | 10  | 
+| UNet     | $5*10^{-4}$   | 10     | 0.758
 
 
 
