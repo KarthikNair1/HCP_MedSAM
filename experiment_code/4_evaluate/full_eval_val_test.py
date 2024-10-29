@@ -43,7 +43,7 @@ from segmentation_models_pytorch.encoders import get_preprocessing_fn
 
 # sensitivity dice: of all the slices where this class is present in at least one pixel, what is the mean dice score?
 # specificity dice: of all slices where this class is not present, what is our mean dice score (this can only be 0 or 1)
-# normal dice: of all slices, what is the mean dice score (if the class is not present, this can only be 0 or 1)
+# normal dice: of all slices, what is the mean dice score (if th∂e class is not present, this can only be 0 or 1)
 
 def load_model(model_type, model_path, num_classes):
     result = torch.load(model_path)
@@ -100,31 +100,23 @@ def load_model_from_label_and_type(model_type, label, explicit_model_path = None
         raise NotImplementedError
     elif model_type == 'singletask_yolov7_prompted':
         model_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/second_round_w_bbox_yolov7_finetunes_longer_8-17-23/label{label}/*/medsam_model_best.pth'
-        listo = glob(model_path)
-        assert len(listo) == 1
-        model_path = listo[0]
         num_classes = 3 # note we have to pass in 3 so that we get the singletask sam model, which predicts 3 masks, even though the more accurate number would be 2
     elif model_type == 'singletask_yolov7_longer_prompted':
         model_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/second_round_w_bbox_yolov7_finetunes_60epochs_8-20-23/label{label}/*/medsam_model_best.pth'
-        listo = glob(model_path)
-        assert len(listo) == 1
-        model_path = listo[0]
         num_classes = 3
     elif model_type == 'pooltask_yolov7_prompted':
         model_path = '/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/pooled_labels_ckpt_continue_8-22-23/model_best_20230822-115028.pth'
         num_classes = 103 # have to pass in 103 here unfortunately because this model was accidentally trained to output 103 masks, even though only the first one is actually used and loss-propagated through
     elif model_type == 'singletask_unet':
         model_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_singletask_testing_5-26-24/logs_training/fifth_pass/singletask_unet-label{label}-*.pth'
-        listo = glob(model_path)
-        assert len(listo) == 1
-        model_path = listo[0]
         num_classes = 1
 
     if explicit_model_path is not None:
         model_path = explicit_model_path
-        listo = glob(model_path)
-        assert len(listo) == 1
-        model_path = listo[0]
+        
+    listo = glob(model_path)
+    assert len(listo) == 1
+    model_path = listo[0]
 
     return load_model(model_type, model_path, num_classes)
 def load_data_from_label_and_type(model_type, label, tag, args):
@@ -133,7 +125,7 @@ def load_data_from_label_and_type(model_type, label, tag, args):
     if model_type in ['multitask_unprompted', 'pooltask_yolov7_prompted', 'singletask_unet', 'singletask_unprompted']:
         df_desired = pd.read_csv(args.df_desired_path)
     else:
-        df_desired = pd.read_csv(f'/gpfs/home/kn2347/MedSAM/class_mappings/label{label}_only_name_class_mapping.csv')
+        df_desired = pd.read_csv(f'/gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/class_mappings/label{label}_only_name_class_mapping.csv')
     NUM_CLASSES = len(df_desired)
     if model_type == 'singletask_unet':
         NUM_CLASSES = 2
@@ -206,9 +198,9 @@ def load_data_from_label_and_type(model_type, label, tag, args):
             this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/medsam/path_df_label{label}_only_with_bbox.csv'
         elif model_type in ['singletask_yolov7_prompted', 'singletask_yolov7_longer_prompted']:
             if tag == 'val':
-                this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/yolov7/path_df_label{label}_only_with_bbox_yolov7.csv'
+                this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/yolov10/100/{label}/path_df_only_with_bbox_yolov10.csv'
             elif tag == 'test':
-                this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/yolov7/test/path_df_label{label}_only_with_bbox_yolov7_TEST.csv'
+                this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/yolov10/100/{label}/path_df_only_with_bbox_yolov10.csv'
         
         df_all_samples = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv')
         df_all_samples = df_all_samples[df_all_samples['id'].isin(ids)].reset_index(drop=True)
@@ -223,10 +215,12 @@ def load_data_from_label_and_type(model_type, label, tag, args):
         pool_labels = False
     
     elif model_type in ['singletask_unet']:
-        df = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/baseline_unet/all_labels_df.csv')
+        df = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_unet.csv')
         label_id = label
         pool_labels = False
 
+    if args.explicit_dataset_path is not None:
+        df = pd.read_csv(args.explicit_dataset_path)
     
     df = df[df['id'].isin(ids)].reset_index(drop=True)
 
@@ -235,7 +229,6 @@ def load_data_from_label_and_type(model_type, label, tag, args):
     elif model_type == 'singletask_unet':
         preprocess_input = get_preprocessing_fn('resnet18', pretrained='imagenet')
         dataset = MRIDataset_Imgs(df, label_id = label_id, bbox_shift=0, label_converter = label_converter, NUM_CLASSES=NUM_CLASSES, as_one_hot=True, pool_labels=pool_labels, preprocess_fn=preprocess_input)
-        print(dataset[160][1])
     else:
         dataset = MRIDataset(df, label_id = label_id, bbox_shift=0, label_converter = label_converter, NUM_CLASSES=NUM_CLASSES, as_one_hot=True, pool_labels=pool_labels)
     
@@ -318,6 +311,7 @@ parser.add_argument("--model_type", type=str, choices = ['singletask_unprompted'
                                                           'singletask_yolov7_longer_prompted', 'pooltask_yolov7_prompted',
                                                           'singletask_unet'])
 parser.add_argument("--explicit_model_path", type=str, default=None)
+parser.add_argument("--explicit_dataset_path", type=str, default=None)
 parser.add_argument("--label", type=int) # only relevant for singletask models?
 parser.add_argument("--tag", type=str, choices = ['val', 'test'])
 parser.add_argument('-train_test_splits', type=str,

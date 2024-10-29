@@ -62,8 +62,8 @@ parser.add_argument('-i', '--data_frame_path', type=str,
 parser.add_argument('-train_test_splits', type=str,
                     default='/gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle',
                     help='path to pickle file containing a dictionary with train, val, and test IDs')
-parser.add_argument('--df_starting_mapping_path', type=str, default = '/gpfs/home/kn2347/MedSAM/hcp_mapping_processed.csv', help = 'Path to dataframe holding the integer labels in the segmentation numpy files and the corresponding text label, prior to subsetting for only the labels we are interested in.')
-parser.add_argument('--df_desired_path', type=str, default = '/gpfs/home/kn2347/MedSAM/darts_name_class_mapping_processed.csv')
+parser.add_argument('--df_starting_mapping_path', type=str, default = '/gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv', help = 'Path to dataframe holding the integer labels in the segmentation numpy files and the corresponding text label, prior to subsetting for only the labels we are interested in.')
+parser.add_argument('--df_desired_path', type=str, default = '/gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv')
 parser.add_argument('-label_id', type=int, default=1,
                     help='Label number for training')
 parser.add_argument('-num_classes', type=int, default=1)
@@ -226,7 +226,7 @@ for i in range(0, args.epochs):
         print('Model saved!')
 
     early_stop_pct = (early_stop_prev_loss - valid_logs['dice_ce_loss']) / early_stop_prev_loss
-    if early_stop_pct < args.early_stop_delta:
+    if args.early_stop_delta is not None and early_stop_pct < args.early_stop_delta:
         # if it doesn't decrease by at least 0.001, increment counter
         early_stop_ctr += 1
         if early_stop_ctr > early_stop_cutoff:

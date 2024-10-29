@@ -35,6 +35,13 @@ def symmetric_pad_array(input_array: np.ndarray, target_shape: tuple, pad_value:
 parser = argparse.ArgumentParser()
 parser.add_argument("--start_idx", type=int)
 parser.add_argument("--end_idx", type=int)
+parser.add_argument("--mri_file_pattern", type=str, help = 'String pattern for all .mgz/.gz MRI files. For example, /gpfs/data/cbi/hcp/hcp_seg/data_orig/*/mri/T1.mgz')
+parser.add_argument("--MedSAM_checkpoint_path", type = str, default = "/gpfs/home/kn2347/MedSAM/medsam_vit_b.pth")
+parser.add_argument("--dest_image_encoding_dir", type = str, help = "Target directory for saving all image encodings, e.g. /gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/pretrained_image_encoded_slices")
+parser.add_argument("--dest_seg_dir", type = str, help = "Target directory for saving all image segmentations, e.g. /gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/segmentation_slices")
+parser.add_argument("--dest_img_dir", type = str, help = "Target directory for saving all raw images, e.g. /gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/images")
+parser.add_argument("--device", type = str, default = "cuda", help = 'cuda or cpu?')
+
 args = parser.parse_args()
 
 start_idx = args.start_idx
@@ -43,8 +50,8 @@ end_idx = args.end_idx
 #%% load model and image
 
 
-MedSAM_CKPT_PATH = "/gpfs/home/kn2347/MedSAM/medsam_vit_b.pth"
-device = "cuda:0"
+MedSAM_CKPT_PATH = args.MedSAM_checkpoint_path
+device = args.device
 #device='cpu'
 medsam_model = sam_model_registry['vit_b'](checkpoint=MedSAM_CKPT_PATH)
 medsam_model = medsam_model.to(device)
@@ -53,7 +60,7 @@ medsam_model.eval()
 from segment_anything.utils.transforms import ResizeLongestSide
 import glob
 
-file_pattern = '/gpfs/data/luilab/karthik/brats_dataset/MICCAI_BraTS2020_TrainingData/BraTS20_Training_*/*_t1ce.nii.gz'
+file_pattern = args.mri_file_pattern
 #file_pattern_seg = '/gpfs/data/luilab/karthik/brats_dataset/MICCAI_BraTS2020_TrainingData/BraTS20_Training_*/*_seg.nii.gz'
 paths = glob.glob(file_pattern)
 paths = sorted(paths)
@@ -62,8 +69,8 @@ paths = sorted(paths)
 #segment_root_dir = '/gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/segmentation_slices'
 
 # e.g. /gpfs/data/luilab/karthik/brats_dataset/MICCAI_BraTS2020_TrainingData/BraTS20_Training_001/BraTS20_Training_001_t1.nii.gz
-segment_root_dir = '/gpfs/data/luilab/karthik/pediatric_seg_proj/brats_slices_npy/segmentation_slices'
-img_encoding_dir = '/gpfs/data/luilab/karthik/pediatric_seg_proj/brats_slices_npy/pretrained_image_encoded_slices'
+img_encoding_dir = args.dest_image_encoding_dir
+segment_root_dir = args.dest_seg_dir
 
 ctr = 0
 
@@ -102,7 +109,7 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
         seg_slice_path = f'{segment_folder_dir}/seg_{slice}.npy'
 
         if not os.path.exists(slice_path): # save image encoding
-
+            
             #x = data_mri[:,slice,:].astype('uint8')
             x = data_mri[:,slice,:]
             if x.max() > 0:
@@ -116,7 +123,7 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
             x_tensor_preproc = (x - x.min()) / np.clip(
                 x.max() - x.min(), a_min=1e-8, a_max=None
             )
-            x_tensor_preproc = torch.tensor(x_tensor_preproc).float().permute(2,0,1).unsqueeze(0).to('cuda')
+            x_tensor_preproc = torch.tensor(x_tensor_preproc).float().permute(2,0,1).unsqueeze(0).to(args.device)
             
             with torch.no_grad():
                 embedding = medsam_model.image_encoder(x_tensor_preproc) # shape is (1, 256, 64, 64)
@@ -125,7 +132,7 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
             np.save(slice_path, embedding.cpu().numpy()[0, :, : ,:]) # saved as (256, 64, 64)
 
             # save raw image as well
-            img_save_dir = '/gpfs/data/luilab/karthik/pediatric_seg_proj/brats_slices_npy/dir_structure_for_yolov7/train/images/'
+            img_save_dir = args.dest_img_dir
 
             img_pil = Image.fromarray(my_img.astype('uint8'))
             img_pil.save(img_save_dir + f'{id}_slice{slice}.png')

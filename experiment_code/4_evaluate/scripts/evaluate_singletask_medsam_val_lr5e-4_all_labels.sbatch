@@ -6,8 +6,8 @@
 #SBATCH --partition a100_short
 #SBATCH --job-name singletask_medsam_eval
 #SBATCH --time 1-00:00:00
-#SBATCH --array=1-102
-#SBATCH --exclude=a100-4023,a100-4024,a100-4018,a100-4019
+#SBATCH --array=91
+#SBATCH --exclude=a100-4023,a100-4024,a100-4018,a100-4019,a100-4020
 cd /gpfs/home/kn2347/HCP_MedSAM_project
 set -x -e
 

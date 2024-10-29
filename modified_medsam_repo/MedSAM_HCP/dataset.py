@@ -51,7 +51,10 @@ class MRIDataset(Dataset):
 
         # load segmentation mask as npy
         seg_path = self.data_frame.loc[index,'segmentation_slice_path']
-        seg_npy = np.load(seg_path) # (256, 256)
+        if isinstance(seg_path, str) and os.path.exists(seg_path):
+            seg_npy = np.load(seg_path) # (256, 256)
+        else:
+            seg_npy = np.full((256, 256), np.nan)
 
         if self.label_converter is not None:
             #print(f'pre label max: {seg_npy.max()}')
@@ -90,13 +93,11 @@ class MRIDataset(Dataset):
 
         return torch.tensor(img_embed_npy).float(), seg_tens, torch.tensor(bboxes).float(), img_slice_name
     
-    def load_image(self, index):
-        img_path = self.data_frame.loc[index, 'image_path']
+    def load_image(self, index, col_name='image_path'):
+        img_path = self.data_frame.loc[index, col_name]
         imgo_obj = Image.open(img_path)
         img = np.array(imgo_obj) # 256,256,3
         img = img[:, :, 0] # 256,256
-        print(img.min())
-        print(img.max())
         #slice_num = self.data_frame.loc[index, 'slice']
         #img = nib.load(img_path).get_fdata()[:,slice_num,:].astype(np.uint8)
         return img # returns as (256, 256)
@@ -132,7 +133,10 @@ class MRIDataset_Imgs(MRIDataset):
         
         # load segmentation mask as npy
         seg_path = self.data_frame.loc[index,'segmentation_slice_path']
-        seg_npy = np.load(seg_path) # (256, 256)
+        if isinstance(seg_path, str) and os.path.exists(seg_path):
+            seg_npy = np.load(seg_path) # (256, 256)
+        else:
+            seg_npy = np.full((256, 256), np.nan)
 
         if self.label_converter is not None:
             seg_npy = self.label_converter.hcp_to_compressed(seg_npy)
@@ -157,6 +161,9 @@ class MRIDataset_Imgs(MRIDataset):
         sliceo = self.data_frame.loc[index,'slice']
         img_slice_name = f'{ido}_{sliceo}'
         return img_slice_name
+
+    def load_image(self, index):
+        return super().load_image(index, col_name='img_slice_path')
 
 # code to load train, val, test datasets
 def load_datasets(path_df_path, train_test_splits_path, label_id, bbox_shift=0, 

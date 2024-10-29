@@ -105,7 +105,6 @@ parser.add_argument('--early_stop_delta', type=float, default=None,
 
 parser.add_argument('--early_stop_patience', type=int, default=None,
                     help='number of epochs without sufficient delta until exiting')
-               
 
 args = parser.parse_args()
 
