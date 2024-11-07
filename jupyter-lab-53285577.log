@@ -1,0 +1,44 @@
+
+MacOS or linux terminal command to create your ssh tunnel:
+ssh -N -L 8954:a100-4008:8954 kn2347@bigpurple3.nyumc.org
+   
+For more info and how to connect from windows, 
+   see research.computing.yale.edu/jupyter-nb
+Here is the MobaXterm info:
+Forwarded port:same as remote port
+Remote server: a100-4008
+Remote port: 8954
+SSH server: bigpurple3.nyumc.org
+SSH login: kn2347
+SSH port: 22
+Use a Browser on your local machine to go to:
+http://localhost:8954  (prefix w/ https:// if using password)
+
+Loading anaconda3/gpu/2022.10
+  Loading requirement: cuda/11.8
+Note: NumExpr detected 48 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 8.
+NumExpr defaulting to 8 threads.
+[W 2024-10-29 12:17:09.801 ServerApp] The module 'panel.io.jupyter_server_extension' could not be found (libjpeg-183418da.so.9.4.0: cannot open shared object file: No such file or directory). Are you sure the extension is installed?
+[I 2024-10-29 12:17:09.810 ServerApp] jupyterlab | extension was successfully linked.
+/gpfs/share/apps/anaconda3/gpu/2022.10/lib/python3.9/site-packages/IPython/paths.py:59: UserWarning: IPython dir '/gpfs/home/kn2347/.ipython' is not a writable location, using a temp directory.
+  warn("IPython dir '{0}' is not a writable location,"
+[I 2024-10-29 12:17:16.274 ServerApp] nbclassic | extension was successfully linked.
+/gpfs/share/apps/anaconda3/gpu/2022.10/lib/python3.9/site-packages/IPython/paths.py:59: UserWarning: IPython dir '/gpfs/home/kn2347/.ipython' is not a writable location, using a temp directory.
+  warn("IPython dir '{0}' is not a writable location,"
+[I 2024-10-29 12:17:16.422 ServerApp] nbclassic | extension was successfully loaded.
+[I 2024-10-29 12:17:16.424 LabApp] JupyterLab extension loaded from /gpfs/share/apps/anaconda3/gpu/2022.10/lib/python3.9/site-packages/jupyterlab
+[I 2024-10-29 12:17:16.424 LabApp] JupyterLab application directory is /gpfs/share/apps/anaconda3/gpu/2022.10/share/jupyter/lab
+[I 2024-10-29 12:17:16.451 ServerApp] jupyterlab | extension was successfully loaded.
+[I 2024-10-29 12:17:16.452 ServerApp] Serving notebooks from local directory: /gpfs/home/kn2347/HCP_MedSAM_project
+[I 2024-10-29 12:17:16.452 ServerApp] Jupyter Server 1.18.1 is running at:
+[I 2024-10-29 12:17:16.452 ServerApp] http://a100-4008:8954/lab?token=456772db0b34513c61cec1da9bc55d49a83881f470748f22
+[I 2024-10-29 12:17:16.452 ServerApp]  or http://127.0.0.1:8954/lab?token=456772db0b34513c61cec1da9bc55d49a83881f470748f22
+[I 2024-10-29 12:17:16.452 ServerApp] Use Control-C to stop this server and shut down all kernels (twice to skip confirmation).
+[C 2024-10-29 12:17:16.472 ServerApp] 
+    
+    To access the server, open this file in a browser:
+        file:///gpfs/home/kn2347/.local/share/jupyter/runtime/jpserver-343394-open.html
+    Or copy and paste one of these URLs:
+        http://a100-4008:8954/lab?token=456772db0b34513c61cec1da9bc55d49a83881f470748f22
+     or http://127.0.0.1:8954/lab?token=456772db0b34513c61cec1da9bc55d49a83881f470748f22
+slurmstepd-a100-4008: error: *** JOB 53285577 ON a100-4008 CANCELLED AT 2024-10-30T12:03:52 ***

@@ -6,7 +6,7 @@ import torch
 
 def weighted_ce_loss(pred, gt, weights, as_one_hot=True):
     # pred must be pre-sigmoid values
-    # weights must be tensor of shape (NUM_CLASSES)
+    # weights must be tensor of shape (NUM_CLASSES)         
     assert weights.shape[0] == pred.shape[1]
     C = weights.shape[0]
     if as_one_hot:
@@ -46,7 +46,10 @@ def weighted_dice_loss(pred, gt, weights, as_one_hot=True):
     assert weights.shape[0] == pred.shape[1]
     if as_one_hot:
         B, C, H, W = pred.shape
-        loss_fn = monai.losses.DiceLoss(sigmoid=True, squared_pred=True, reduction='none') 
+        #loss_fn = monai.losses.DiceLoss(sigmoid=True, squared_pred=True, reduction='none') 
+        assert torch.any(pred < 0) or torch.any(pred > 1)
+        loss_fn = loss_fn = monai.losses.DiceLoss(sigmoid=True, squared_pred=True, reduction='mean', include_background = True, batch = True) 
+        return loss_fn(pred, gt), None # scalar
         
     else:
         #assert len(gt.shape) == 3 # B, H, W
@@ -74,8 +77,12 @@ def weighted_ce_dice_loss(pred, gt, weights, lambda_dice = 0.5, as_one_hot=True)
     ce_loss, ce_class_loss = weighted_ce_loss(pred, gt, weights, as_one_hot)
 
     total_loss = ce_weight * ce_loss + dice_weight * dice_loss
-    total_class_loss = ce_weight * ce_class_loss + dice_weight * dice_class_loss
-    return total_loss, total_class_loss, dice_weight * dice_class_loss, ce_weight * ce_class_loss 
+    
+    if dice_class_loss is None or ce_class_loss is None:
+        return total_loss, None, None, None
+    else:
+        total_class_loss = ce_weight * ce_class_loss + dice_weight * dice_class_loss
+        return total_loss, total_class_loss, dice_weight * dice_class_loss, ce_weight * ce_class_loss 
 
 def unweighted_ce_loss(pred, gt):
     return nn.BCEWithLogitsLoss(reduction="mean")(pred, gt.float())

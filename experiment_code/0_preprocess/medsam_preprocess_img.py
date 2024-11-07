@@ -86,9 +86,9 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
             x = data_mri[:,slice,:]
             if x.max() > 0:
                 if args.image_norm_max is None:
-                    x = (x / x.max() * 255).astype('uint8')
+                    x = (x / max_value * 255).astype('uint8')
                 else:
-                    x = (x / x.max() * args.image_norm_max).astype('uint8')
+                    x = (x / max_value * args.image_norm_max).astype('uint8')
             else:
                 x = x.astype('uint8')
             assert len(x.shape)==2
@@ -113,9 +113,9 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
             x = data_mri[:,slice,:]
             if x.max() > 0:
                 if args.image_norm_max is None:
-                    x = (x / x.max() * 255).astype('uint8')
+                    x = (x / max_value * 255).astype('uint8')
                 else:
-                    x = (x / x.max() * args.image_norm_max).astype('uint8')
+                    x = (x / max_value * args.image_norm_max).astype('uint8')
             else:
                 x = x.astype('uint8')
             assert len(x.shape)==2

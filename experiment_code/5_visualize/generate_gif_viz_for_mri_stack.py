@@ -16,12 +16,16 @@ from MedSAM_HCP.MedSAM import MedSAM, medsam_inference
 from MedSAM_HCP.build_sam import build_sam_vit_b_multiclass
 from MedSAM_HCP.utils_hcp import *
 
-def generate_colors(seed = 2024, num_classes = 103):
+def generate_colors(seed = 2024, num_classes = 103, force_color = False):
     np.random.seed(seed)
     rand_nums = np.random.random((num_classes, 3))
     color_label_mapper = dict()
     for i in range(num_classes):
-        color_label_mapper[i] = (rand_nums[i, :] * 255).astype('uint8')
+        if force_color:
+            # use a fixed color for all regions, which should have high contrast with the MRI itself
+            color_label_mapper[i] = np.array((201, 203, 52))
+        else:
+            color_label_mapper[i] = (rand_nums[i, :] * 255).astype('uint8')
 
     return color_label_mapper
 
@@ -145,6 +149,8 @@ parser.add_argument('--df_desired_path', type=str, default = '/gpfs/home/kn2347/
 parser.add_argument('--output_dir', type=str, default = '/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/eval_results_test_10-13-23')
 parser.add_argument('--do_region_gifs', action='store_true')
 parser.add_argument('--do_fuse_gif', action='store_true')
+parser.add_argument('--single_label', type=int, default=None, help='Label to use if only one label should be outputted in the segmentation')
+parser.add_argument('--force_color', action='store_true', help='Should segmentations all be plotted with the same color for high contrast')
 
 args = parser.parse_args()
 if not args.do_region_gifs and not args.do_fuse_gif:
@@ -164,14 +170,23 @@ seg_arr = np.load(args.seg_path, allow_pickle=True)
 assert seg_arr.shape == (256,256,256)
 
 # generate colors
-color_label_mapper = generate_colors(seed = 2024, num_classes = 103)
+color_label_mapper = generate_colors(seed = 2024, num_classes = 103, force_color = args.force_color)
 
 
 
 mri_img_pattern = args.mri_path
+
 if args.do_region_gifs:
-    for i in range(0, 103):
+
+    labels_to_iter = range(0,103)
+    if args.single_label is not None:
+        labels_to_iter = [args.single_label]
+
+    for i in labels_to_iter:
         if i in np.unique(seg_arr):
+            get_animation(mri_img_pattern, is_png_pattern, seg_arr, i, out_path = args.output_dir, label_converter = label_converter, color_label_mapper = color_label_mapper)
+        elif args.single_label is not None:
+            # force create the animation even if the label has no positive pixels
             get_animation(mri_img_pattern, is_png_pattern, seg_arr, i, out_path = args.output_dir, label_converter = label_converter, color_label_mapper = color_label_mapper)
 
 if args.do_fuse_gif:

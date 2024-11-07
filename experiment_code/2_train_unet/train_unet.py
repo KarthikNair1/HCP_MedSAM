@@ -46,10 +46,13 @@ class dice_ce_loss(Loss):
         # y_pred: (B, C, H, W)
         # y_true: (B, C, H, W)
 
-        ce_loss = 0
+        # assert that these are all probabilities post-sigmoid
+        assert torch.all(y_pred >= 0) and torch.all(y_pred <= 1)
+
+        ce_loss_fn = nn.BCELoss(reduction='mean')
         dice_loss = monai.losses.DiceLoss(include_background = True, sigmoid=False, squared_pred=True, reduction='mean',
             batch = True)
-        return dice_loss(y_pred, y_true) * self.lambda_dice + ce_loss * (1-self.lambda_dice)
+        return dice_loss(y_pred, y_true) * self.lambda_dice + ce_loss_fn(y_pred, y_true.float()) * (1-self.lambda_dice)
 
 # set seeds
 torch.manual_seed(2023)
@@ -75,7 +78,7 @@ parser.add_argument('-freeze_encoder', type=bool, default=True)
 parser.add_argument('-project_name', type=str, default='test')
 parser.add_argument('-wandb_run_name', type=str, default=None)
 parser.add_argument('-work_dir', type=str, default='./work_dir')
-
+parser.add_argument('--lambda_dice', type=float, default=0, help='What fraction of the total loss should the dice loss contribute to? (default: 0.0)')
 parser.add_argument('--log_val_every', type=int, default=None)
 
 parser.add_argument('--early_stop_delta', type=float, default=None,
@@ -152,7 +155,7 @@ if freeze_encoder:
         param.requires_grad = False
 
 #loss = DiceLoss()
-loss = dice_ce_loss(lambda_dice = 1)
+loss = dice_ce_loss(lambda_dice = args.lambda_dice)
 metrics = [
     smp.utils.metrics.IoU(threshold=0.5),
     smp.utils.metrics.Fscore(threshold=0.5)
@@ -238,3 +241,4 @@ for i in range(0, args.epochs):
     early_stop_prev_loss = valid_logs['dice_ce_loss']
 
 
+ 

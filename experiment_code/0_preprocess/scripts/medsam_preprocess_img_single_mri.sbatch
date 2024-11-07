@@ -17,7 +17,7 @@ dest_img_encoding_dir=$2
 dest_seg_dir=$3
 dest_img_dir=$4
 id_index_in_path=$5
-
+image_norm_max=$6
 python experiment_code/0_preprocess/medsam_preprocess_img.py \
     --start_idx 0 --end_idx 1 \
     --mri_file_pattern ${mri_path} \
@@ -25,4 +25,5 @@ python experiment_code/0_preprocess/medsam_preprocess_img.py \
     --dest_image_encoding_dir ${dest_img_encoding_dir} \
     --dest_img_dir ${dest_img_dir} \
     --id_index_in_path ${id_index_in_path} \
+    --image_norm_max ${image_norm_max} \
     --device cuda

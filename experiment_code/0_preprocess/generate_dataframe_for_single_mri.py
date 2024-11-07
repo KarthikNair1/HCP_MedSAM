@@ -90,11 +90,11 @@ for sli in img_dict.keys():
 
     if args.model_type == 'singletask_unprompted':
         collect_dict['image_embedding_slice_path'].append(dict_get_or_none(img_encoding_dict, sli))
-        collect_dict['bbox_0'] = 0
-        collect_dict['bbox_1'] = 0
-        collect_dict['bbox_2'] = 256
-        collect_dict['bbox_3'] = 256
-[print(f'{x}: {len(collect_dict[x])}') for x in collect_dict.keys()]
+        collect_dict['bbox_0'].append(0)
+        collect_dict['bbox_1'].append(0)
+        collect_dict['bbox_2'].append(256)
+        collect_dict['bbox_3'].append(256)
+
 df = pd.DataFrame(collect_dict)
 df = df.sort_values(by='slice').reset_index(drop=True)
 if args.model_type == 'singletask_unet':

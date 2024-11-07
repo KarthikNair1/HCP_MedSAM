@@ -197,10 +197,11 @@ def load_data_from_label_and_type(model_type, label, tag, args):
         if model_type == 'singletask_medsam_prompted':
             this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df/medsam/path_df_label{label}_only_with_bbox.csv'
         elif model_type in ['singletask_yolov7_prompted', 'singletask_yolov7_longer_prompted']:
-            if tag == 'val':
-                this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/yolov10/100/{label}/path_df_only_with_bbox_yolov10.csv'
-            elif tag == 'test':
-                this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/yolov10/100/{label}/path_df_only_with_bbox_yolov10.csv'
+            this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/yolov10/100/{label}/path_df_only_with_bbox_yolov10.csv'
+        
+        if args.explicit_yolo_bbox_dataframe_path is not None:
+            # use this instead
+            this_path = args.explicit_yolo_bbox_dataframe_path
         
         df_all_samples = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv')
         df_all_samples = df_all_samples[df_all_samples['id'].isin(ids)].reset_index(drop=True)
@@ -312,6 +313,7 @@ parser.add_argument("--model_type", type=str, choices = ['singletask_unprompted'
                                                           'singletask_unet'])
 parser.add_argument("--explicit_model_path", type=str, default=None)
 parser.add_argument("--explicit_dataset_path", type=str, default=None)
+parser.add_argument("--explicit_yolo_bbox_dataframe_path", type=str, default=None, help = 'Used only when the model_type involves a yolo model. This supplies the bboxes for samples where yolo detected the class. For samples where yolo did not detect the class, the bbox values are merged with all samples and result in NAs at these locations.')
 parser.add_argument("--label", type=int) # only relevant for singletask models?
 parser.add_argument("--tag", type=str, choices = ['val', 'test'])
 parser.add_argument('-train_test_splits', type=str,

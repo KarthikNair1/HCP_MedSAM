@@ -130,8 +130,10 @@ parser.add_argument("--model_type", type=str, choices = ['singletask_unprompted'
                                                           'singletask_unet'])
 parser.add_argument("--mri_id", type=str, default=None)
 
-#parser.add_argument("--explicit_model_path", type=str, default=None)
+parser.add_argument("--explicit_model_path", type=str, default=None)
 parser.add_argument("--explicit_dataframe_path", type=str, default=None)
+parser.add_argument("--explicit_yolo_bbox_dataframe_path", type=str, default=None, help = 'Used only when the model_type involves a yolo model. This supplies the bboxes for samples where yolo detected the class. For samples where yolo did not detect the class, the bbox values are merged with all samples and result in NAs at these locations.')
+parser.add_argument("--single_label", type=int, default=None, help = 'Label to use if only one label should be outputted in the segmentation')
 #parser.add_argument("--label", type=int) # only relevant for singletask models?
 #parser.add_argument("--tag", type=str, choices = ['val', 'test'])
 #parser.add_argument('-train_test_splits', type=str,
@@ -149,37 +151,59 @@ df_desired = pd.read_csv(args.df_desired_path)
 label_converter = LabelConverter(df_hcp, df_desired)
 
 # load dataframe
-df = pd.read_csv(args.explicit_dataframe_path, dtype={'id': str})
-df = df[df['id'] == args.mri_id].reset_index(drop=True)
+if args.model_type in ['singletask_unet', 'singletask_unprompted']:
+    df = pd.read_csv(args.explicit_dataframe_path, dtype={'id': str})
+    df = df[df['id'] == args.mri_id].reset_index(drop=True)
+elif args.model_type in ['singletask_yolov7_prompted']:
+    this_path = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/yolov10/100/{label}/path_df_only_with_bbox_yolov10.csv'
+    if args.explicit_yolo_bbox_dataframe_path is not None:
+        this_path = args.explicit_yolo_bbox_dataframe_path
+    df_all_samples = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv')
+    df_all_samples = df_all_samples[df_all_samples['id'] == args.mri_id].reset_index(drop=True)
+    df_boxes = pd.read_csv(this_path)
+    df_boxes = df_boxes[df_boxes['id'] == args.mri_id].reset_index(drop=True)
+    df_all_samples = df_all_samples.drop(columns = ['bbox_0', 'bbox_1', 'bbox_2', 'bbox_3'])
+    df = df_all_samples.merge(df_boxes, how='left', on=['id','slice','image_embedding_slice_path', 'segmentation_slice_path', 'image_path'])
 
 print(f'After filtering for ID: {df.shape[0]} slices')
 
 # iterate on labels if single-task
 total_combine = None
+labels_to_iter = range(1,103)
+if args.single_label is not None:
+    labels_to_iter = [args.single_label]
+
 if args.model_type == 'singletask_unet':
 
     preprocess_input = get_preprocessing_fn('resnet18', pretrained='imagenet')
     segs_for_each_label = []
-    for label in tqdm(range(1, 103)):
+    for label in tqdm(labels_to_iter):
         # prep the model and dataset for this
-        model_path = glob(f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_retrain_all_labels_9-9-24/training/{label}/*-best_model.pth')[0]
+        pattern = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_retrain_all_labels_9-9-24/training/{label}/*-best_model.pth'
+        if args.explicit_model_path is not None:
+            pattern = args.explicit_model_path
+        model_path = glob(pattern)[0]
         model = load_model(args.model_type, model_path, num_classes=1)
         dataset = MRIDataset_Imgs(df, label_id = label, bbox_shift=0, label_converter = label_converter, NUM_CLASSES=2, as_one_hot=True, pool_labels=False, preprocess_fn=preprocess_input)
         res = run_model_over_dataset_for_segmentations(model, dataset, args.model_type)
         segs_for_each_label.append(res)
     total_combine = np.concatenate(segs_for_each_label, axis = 1)
-elif args.model_type == 'singletask_unprompted':
+elif args.model_type in ['singletask_unprompted', 'singletask_yolov7_prompted']:
     segs_for_each_label = []
-    for label in tqdm(range(1, 103)):
+    for label in tqdm(labels_to_iter):
         # prep the model and dataset for this
-        model_path = glob(f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_retrain_9-12-24/training/{label}/0.001/*/medsam_model_best_sam_readable.pth')[0]
+        if args.model_type == 'singletask_unprompted':
+            pattern = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_retrain_9-12-24/training/{label}/0.001/*/medsam_model_best_sam_readable.pth'
+        #elif args.model_type == 'singletask_yolov7_prompted':
+        if args.explicit_model_path is not None:
+            pattern = args.explicit_model_path
+        model_path = glob(pattern)[0]
+
         model = load_model(args.model_type, model_path, num_classes=1)
         dataset = MRIDataset(df, label_id = label, bbox_shift=0, label_converter = label_converter, NUM_CLASSES=2, as_one_hot=True, pool_labels=False)
         res = run_model_over_dataset_for_segmentations(model, dataset, args.model_type)
         segs_for_each_label.append(res)
     total_combine = np.concatenate(segs_for_each_label, axis = 1)
-elif args.model_type == 'singletask_yolov7_prompted':
-    raise NotImplementedError
 elif args.model_type == 'pooltask_yolov7_prompted':
     raise NotImplementedError
 else:
@@ -191,7 +215,10 @@ bg_prediction = 1 - np.max(total_combine, axis = 1, keepdims = True) # will be 1
 total_combine = np.concatenate((bg_prediction, total_combine), axis = 1)
 
 # now, we should convert this to (B,H,W) of label indices
-total_combine_label_idxs = np.argmax(total_combine, axis = 1) # now (B,H,W)
+if args.single_label is not None: # special handling for this case
+    total_combine_label_idxs = total_combine[:, 1, :, :] * args.single_label # replace 1's with the actual class number
+else:
+    total_combine_label_idxs = np.argmax(total_combine, axis = 1) # now (B,H,W)
 
 save_path = os.path.join(args.output_dir, str(args.mri_id))
 if not os.path.exists(save_path):
