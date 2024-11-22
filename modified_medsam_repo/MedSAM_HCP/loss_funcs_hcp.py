@@ -12,14 +12,15 @@ def weighted_ce_loss(pred, gt, weights, as_one_hot=True):
     if as_one_hot:
         assert len(gt.shape) == 4 # B, C, H, W
         gt = gt.float()
-        loss_fn = nn.BCEWithLogitsLoss(reduction='none') 
-        losses = loss_fn(pred, gt) # B, C, H, W
-        losses = losses.mean(dim = (2, 3)) # B, C
-        class_losses = (weights * losses).mean(dim=0).view(C) # mean over batch -> C
-        if C > 1:
-            overall_loss = class_losses[1:].mean() # mean over classes -> 1, also remove unknown channel
-        else:
-            overall_loss = class_losses
+        loss_fn = nn.BCEWithLogitsLoss(reduction='mean')
+        losses = loss_fn(pred, gt) # scalar
+        #losses = losses.mean(dim = (2, 3)) # B, C
+        #class_losses = (weights * losses).mean(dim=0).view(C) # mean over batch -> C
+        #if C > 1:
+        #    overall_loss = class_losses[1:].mean() # mean over classes -> 1, also remove unknown channel
+        #else:
+        #    overall_loss = class_losses
+        return losses, None
 
         # note that class losses does not remove unknown class
     else:
@@ -63,15 +64,14 @@ def weighted_dice_loss(pred, gt, weights, as_one_hot=True):
     overall_loss = class_losses.mean() # mean over classes
     #overall_loss = class_losses[1:].mean() # mean over classes -> 1, also remove unknown channel
     # note that class losses does not remove unknown class
-
     
     return overall_loss, class_losses
 
 def weighted_ce_dice_loss(pred, gt, weights, lambda_dice = 0.5, as_one_hot=True):
     
 
-    dice_weight = 2 * lambda_dice
-    ce_weight = 2 * (1 - lambda_dice)
+    dice_weight = lambda_dice
+    ce_weight = (1 - lambda_dice)
 
     dice_loss, dice_class_loss = weighted_dice_loss(pred, gt, weights, as_one_hot)
     ce_loss, ce_class_loss = weighted_ce_loss(pred, gt, weights, as_one_hot)

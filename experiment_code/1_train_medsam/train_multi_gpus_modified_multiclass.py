@@ -61,8 +61,9 @@ parser.add_argument('--as_one_hot', action = 'store_false', help='Should each pi
 parser.add_argument('--pool_labels', action='store_true', default = False, help='treat each (mri, class) pair as a single example to a single-task model and train across all of these')
 
 # train
-parser.add_argument('-num_epochs', type=int, default=1000)
-parser.add_argument('-batch_size', type=int, default=8)
+parser.add_argument('--num_epochs', '-num_epochs', type=int, default=1000)
+parser.add_argument('--batch_size', '-batch_size', type=int, default=8)
+parser.add_argument('--val_batch_size', '-val_batch_size', type=int, default=None)
 parser.add_argument('-num_workers', type=int, default=8)
 parser.add_argument('-sample_n_slices', type=int, default=None)
 parser.add_argument('--loss_reweighted', action='store_true', default=False)
@@ -70,17 +71,23 @@ parser.add_argument('--lambda_dice', type=float, default=0.5, help='What fractio
 parser.add_argument('--loss_switching', action='store_true', default=False)
 parser.add_argument('--keep_zero_weight', action='store_true', default=False, help='Should we keep the classweight for class 0 (background class) instead of replacing with 0 for loss calculation? (default: False)')
 parser.add_argument('--bbox_shift', type=int, default=0)
+
+parser.add_argument('--train_prompt_encoder', action='store_true', default=False, help = 'Should prompt encoder weights be unfrozen')
+
+
 # Optimizer parameters
 parser.add_argument('-weight_decay', type=float, default=0.01,
                     help='weight decay (default: 0.01)')
-parser.add_argument('-lr', type=float, default=0.0001, metavar='LR',
+parser.add_argument('--lr', '-lr', type=float, default=0.0001, metavar='LR',
                     help='learning rate (absolute lr)')
 parser.add_argument('-use_wandb', type=bool, default=False, 
                     help='use wandb to monitor training')        
 parser.add_argument('-wandb_dir', type=bool, default='/gpfs/home/kn2347/wandb', 
                     help='Directory of wandb')    
 parser.add_argument('-use_amp', action='store_true', default=False, 
-                    help='use amp')           
+                    help='use amp')
+parser.add_argument('-learning_rate_scheduler', type=str, choices=['None', 'Cosine'], default=None, 
+                    help='Learning rate scheduler to use, or None if not desired')           
 ## Distributed training args
 parser.add_argument('--world_size', type=int, help='world size')
 parser.add_argument('--node_rank', type=int, default=0, help='Node rank')
@@ -221,12 +228,16 @@ def main_worker(gpu, ngpus_per_node, args):
     mask_dec_params = list(
             medsam_model.module.mask_decoder.parameters() # only optimize the parameters of mask decoder, do not update prompt encoder or image_encoder
     )
+    if args.train_prompt_encoder:
+        mask_dec_params.extend(medsam_model.module.prompt_encoder.parameters())
+
     optimizer = torch.optim.AdamW(
         mask_dec_params,
         lr=args.lr,
         weight_decay=args.weight_decay
     )
-    print('Number of mask decoder parameters: ', sum(p.numel() for p in mask_dec_params if p.requires_grad)) # 93729252
+
+    print('Number of parameters: ', sum(p.numel() for p in mask_dec_params if p.requires_grad)) # 93729252 if mask_decoder only
 
     train_dataset, val_dataset, test_dataset = load_datasets(
         args.data_frame_path, args.train_test_splits, args.label_id, 
@@ -234,6 +245,14 @@ def main_worker(gpu, ngpus_per_node, args):
         label_converter=label_converter, NUM_CLASSES=NUM_CLASSES, 
         as_one_hot=args.as_one_hot, pool_labels=args.pool_labels
     )
+
+    # set learning rate scheduling now that we know number of batches in each epoch
+    if args.learning_rate_scheduler not in [None, 'None']:
+        if args.learning_rate_scheduler == 'Cosine':
+            num_batches_per_epoch = len(train_dataset) // args.batch_size
+            lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=num_batches_per_epoch, T_mult=1, eta_min=0, last_epoch=-1)
+    else:
+        lr_scheduler = None
     
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
@@ -257,7 +276,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     val_dataloader = DataLoader(
         val_dataset,
-        batch_size = args.batch_size,
+        batch_size = args.val_batch_size if args.val_batch_size is not None else args.batch_size,
         shuffle = (val_sampler is None),
         num_workers = args.num_workers,
         pin_memory = True,
@@ -319,6 +338,9 @@ def main_worker(gpu, ngpus_per_node, args):
                 medsam_model, optimizer, scaler, loss_type, class_weights_tensor, 
                 lambda_dice, image_embedding, gt2D, boxes, args
             )
+            if lr_scheduler is not None:
+                lr_scheduler.step()
+                wandb.log({'LR_max': lr_scheduler.get_last_lr()[0]})
             
             total_number_of_training_examples_seen += image_embedding.shape[0]
 

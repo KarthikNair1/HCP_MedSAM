@@ -99,7 +99,7 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
                 x.max() - x.min(), a_min=1e-8, a_max=None
             )
             x_tensor_preproc = torch.tensor(x_tensor_preproc).float().permute(2,0,1).unsqueeze(0).to(device)
-
+            
             with torch.no_grad():
                 embedding = medsam_model.image_encoder(x_tensor_preproc) # shape is (1, 256, 64, 64)
 

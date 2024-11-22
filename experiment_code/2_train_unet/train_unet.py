@@ -71,6 +71,7 @@ parser.add_argument('-label_id', type=int, default=1,
                     help='Label number for training')
 parser.add_argument('-num_classes', type=int, default=1)
 parser.add_argument('-batch_size', type=int, default=64)
+parser.add_argument('-val_batch_size', type=int, default=None)
 parser.add_argument('-num_workers', type=int, default=2)
 parser.add_argument('-lr', type=float, default=1e-4 * 32)
 parser.add_argument('-epochs', type=int, default=40)
@@ -80,7 +81,7 @@ parser.add_argument('-wandb_run_name', type=str, default=None)
 parser.add_argument('-work_dir', type=str, default='./work_dir')
 parser.add_argument('--lambda_dice', type=float, default=0, help='What fraction of the total loss should the dice loss contribute to? (default: 0.0)')
 parser.add_argument('--log_val_every', type=int, default=None)
-
+parser.add_argument('--decrease_lr', type=int, default=None, help = 'If LR should be decreased during training, at what epoch should it decrease? (Will be divided by 10)')
 parser.add_argument('--early_stop_delta', type=float, default=None,
                     help='early stopping delta, as a percent of the prior loss (e.g. at least 1 percent improvement in loss each epoch')
 
@@ -139,7 +140,7 @@ train, val, test = load_datasets(
                 as_one_hot=True, pool_labels=False, preprocess_fn = preprocess_input, dataset_type = MRIDataset_Imgs)
 
 train_loader = DataLoader(train, batch_size=batch_sz, shuffle=False, num_workers=num_workers)
-valid_loader = DataLoader(val, batch_size=batch_sz, shuffle=False, num_workers=num_workers)
+valid_loader = DataLoader(val, batch_size=args.val_batch_size if args.val_batch_size is not None else batch_sz, shuffle=False, num_workers=num_workers)
 test_loader = DataLoader(test, batch_size=batch_sz, shuffle=False, num_workers=num_workers)
 
 model = smp.Unet(
@@ -190,21 +191,24 @@ max_score = 0
 early_stop_ctr = 0
 early_stop_prev_loss = 9e9
 early_stop_cutoff = args.early_stop_patience
+total_number_of_training_examples_seen = 0
 
 for i in range(0, args.epochs):
     
     print('\nEpoch: {}'.format(i))
     train_logs = train_epoch.run(train_loader)
 
-    if i == 25:
+    if args.decrease_lr is not None and i == args.decrease_lr:
         optimizer.param_groups[0]['lr'] = lr / 10
         print('Decrease decoder learning rate 10-fold!')
+    total_number_of_training_examples_seen += len(train) # add the number of samples in the whole epoch
 
     wandb.log({
         'epoch': i,
         'train_dice_loss': train_logs['dice_ce_loss'],
         'train_iou_score': train_logs['iou_score'],
-        'train_dice_score': train_logs['fscore']
+        'train_dice_score': train_logs['fscore'],
+        'num_training_samples': total_number_of_training_examples_seen
     })
     
     skip_val = args.log_val_every is not None and i % args.log_val_every != 0

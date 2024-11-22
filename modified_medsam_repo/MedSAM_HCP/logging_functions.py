@@ -77,6 +77,7 @@ def log_predicted_probabilities():
     preds = logits_to_pred_probs(medsam_pred, args.as_one_hot) # (B,C,H,W) of predicted probabilities
     fig, _ = plot_prediction_distribution(preds[:,label_idx,:,:]) # filter for probs for label_idx only
     wandb.log({"label_1/label1_avg_prediction": wandb.Image(fig)})
+    plt.close()    
 
 
 def log_class_losses_as_barplots(fig_class_loss, fig_top_worst):

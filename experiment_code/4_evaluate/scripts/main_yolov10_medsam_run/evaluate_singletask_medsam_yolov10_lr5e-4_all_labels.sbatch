@@ -3,9 +3,9 @@
 #SBATCH --ntasks-per-node 1
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=25G
-#SBATCH --partition gpu8_medium
-#SBATCH --job-name singletask_unet_val_lr1e-4
-#SBATCH --time 1-00:00:00
+#SBATCH --partition a100_short
+#SBATCH --job-name singletask_medsam_val_lr1e-4
+#SBATCH --time 04:00:00
 #SBATCH --array=1-102
 ###SBATCH --exclude=a100-4020,a100-4018
 cd /gpfs/home/kn2347/HCP_MedSAM_project
@@ -25,10 +25,11 @@ module purge
 module load slurm/current
 
 export CUDA_VISIBLE_DEVICES='0'
-export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/singletask_medsam_with_yolo_main_10-14-24'
+export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_yolo_retrain_dice_11-18-24'
 export label=$SLURM_ARRAY_TASK_ID
-mkdir -p ${workdir}/val/${label}/0.001
-if ls ${workdir}/val/${label}/0.001/*.pkl 1> /dev/null 2>&1; then 
+export lr=0.0005
+mkdir -p ${workdir}/val/${label}/${lr}
+if ls ${workdir}/val/${label}/${lr}/*.pkl 1> /dev/null 2>&1; then 
     exit 1
 fi
 
@@ -37,14 +38,16 @@ do
     srun -lN1 --mem=25G -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
     "python experiment_code/4_evaluate/full_eval_val_test.py \
     --model_type singletask_yolov7_prompted \
-    --explicit_model_path ${workdir}/training/${label}/0.001/*/medsam_model_best.pth \
+    --explicit_model_path ${workdir}/training/${label}/${lr}/*/medsam_model_best.pth \
+    --explicit_yolo_bbox_dataframe_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/yolov10/100/${label}/path_df_only_with_bbox_yolov10.csv \
+    --explicit_dataframe_to_merge_with_yolo_path /gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv \
     --label ${label} \
     --tag val \
     -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
     --batch_size 64 \
     --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
     --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv \
-    --output_dir ${workdir}/val/${label}/0.001" >> ${workdir}/val/${label}/0.001/log_for_${SLURM_JOB_ID}.log 2>&1 &
+    --output_dir ${workdir}/val/${label}/${lr}" >> ${workdir}/val/${label}/${lr}/log_for_${SLURM_JOB_ID}.log 2>&1 &
 done
 wait ## Wait for the tasks on nodes to finish
 

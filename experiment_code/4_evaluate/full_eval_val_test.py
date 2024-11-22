@@ -203,7 +203,18 @@ def load_data_from_label_and_type(model_type, label, tag, args):
             # use this instead
             this_path = args.explicit_yolo_bbox_dataframe_path
         
-        df_all_samples = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv')
+        
+        if args.explicit_dataframe_to_merge_with_yolo_path is not None:
+            df_all_samples = pd.read_csv(args.explicit_dataframe_to_merge_with_yolo_path)
+        else:
+            df_all_samples = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv')
+
+        if args.dataframe_mask_npy_path is not None:
+            mask_arr = np.load(args.dataframe_mask_npy_path).astype(bool)
+            assert mask_arr.shape == (len(df_all_samples),) # mask has to have same number of elements as the number of rows
+            df_all_samples = df_all_samples[mask_arr]
+            print(f'After filtering using mask, there are {len(df_all_samples)} slices')
+
         df_all_samples = df_all_samples[df_all_samples['id'].isin(ids)].reset_index(drop=True)
 
         df_boxes = pd.read_csv(this_path)
@@ -222,7 +233,12 @@ def load_data_from_label_and_type(model_type, label, tag, args):
 
     if args.explicit_dataset_path is not None:
         df = pd.read_csv(args.explicit_dataset_path)
-    
+
+        if args.dataframe_mask_npy_path is not None:
+            mask_arr = np.load(args.dataframe_mask_npy_path).astype(bool)
+            assert mask_arr.shape == (len(df),) # mask has to have same number of elements as the number of rows
+            df = df[mask_arr]
+
     df = df[df['id'].isin(ids)].reset_index(drop=True)
 
     if model_type =='pooltask_yolov7_prompted':
@@ -247,7 +263,8 @@ def run_model_over_dataset(model, dataset, model_type, args):
     num_classes = 1
     if model_type=='multitask_unprompted':
         num_classes = 103
-    collector = {'dice_sensitivity':[], 'dice_specificity':[], 'overall_dice':[], 'label_numbers':[]}
+    collector = {'dice_sensitivity':[], 'dice_specificity':[], 'overall_dice':[], 'label_numbers':[],
+        'num_negative_examples': [], 'num_positive_examples': []}
     for step, tup in enumerate(tqdm(dataloader)):
         if isinstance(dataset, MRIDatasetForPooled):
             image_embedding, gt2D, boxes, slice_names, label_nums = tup
@@ -282,6 +299,8 @@ def run_model_over_dataset(model, dataset, model_type, args):
         B, classes, H, W = gt2D.shape
         gt2D_flattened = gt2D.view(B, classes, -1)
         is_negative_examples = (gt2D_flattened == 0).all(dim=2) # size (B,C)
+        collector['num_negative_examples'].append(is_negative_examples.sum(dim=0))
+        collector['num_positive_examples'].append((~is_negative_examples).sum(dim=0)) # (C)
 
 
         r, c = torch.where(is_negative_examples)
@@ -299,11 +318,14 @@ def run_model_over_dataset(model, dataset, model_type, args):
         collector['overall_dice'] = torch.concat(collector['overall_dice']).nanmean(dim=0)
         collector['dice_sensitivity'] = torch.concat(collector['dice_sensitivity']).nanmean(dim=0)
         collector['dice_specificity'] = torch.concat(collector['dice_specificity']).nanmean(dim=0)
+        collector['num_negative_examples'] = torch.concat(collector['num_negative_examples']).sum()
+        collector['num_positive_examples'] = torch.concat(collector['num_positive_examples']).sum()
     else:
         collector['overall_dice'] = torch.concat(collector['overall_dice'])
         collector['dice_sensitivity'] = torch.concat(collector['dice_sensitivity'])
         collector['dice_specificity'] = torch.concat(collector['dice_specificity'])
         collector['label_numbers'] = torch.concat(collector['label_numbers'])
+        
     return collector
 
 parser = argparse.ArgumentParser()
@@ -314,6 +336,8 @@ parser.add_argument("--model_type", type=str, choices = ['singletask_unprompted'
 parser.add_argument("--explicit_model_path", type=str, default=None)
 parser.add_argument("--explicit_dataset_path", type=str, default=None)
 parser.add_argument("--explicit_yolo_bbox_dataframe_path", type=str, default=None, help = 'Used only when the model_type involves a yolo model. This supplies the bboxes for samples where yolo detected the class. For samples where yolo did not detect the class, the bbox values are merged with all samples and result in NAs at these locations.')
+parser.add_argument("--explicit_dataframe_to_merge_with_yolo_path", type=str, default=None, help = 'Used only when the model_type involves a yolo model. This supplies the dataframe with samples to be evaluated from that will be merged with the yolo dataframe. Useful to specify when wanting to evaluate on e.g. slices with at least 100 pixels of the class')
+parser.add_argument("--dataframe_mask_npy_path", type=str, default=None, help = "Path to an npy of booleans that indicate whether each row in the loaded explicit_dataset_path is to be included in the evaluation. Useful to specify when wanting to evaluate e.g. slices with at least 100 pixels of a class")
 parser.add_argument("--label", type=int) # only relevant for singletask models?
 parser.add_argument("--tag", type=str, choices = ['val', 'test'])
 parser.add_argument('-train_test_splits', type=str,

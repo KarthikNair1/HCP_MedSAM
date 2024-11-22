@@ -105,9 +105,9 @@ def log_stuff_at_step(loss, class_losses, dice_class_losses, ce_class_losses, me
     label_idx = 1 if args.label_id is None else 0
 
     # plot distribution of predicted probabilities for the class 1
-    preds = logits_to_pred_probs(medsam_pred, args.as_one_hot) # (B,C,H,W) of predicted probabilities
-    fig, _ = plot_prediction_distribution(preds[:,label_idx,:,:]) # filter for probs for label_idx only
-    wandb.log({"label_1/label1_avg_prediction": wandb.Image(fig)})
+    #preds = logits_to_pred_probs(medsam_pred, args.as_one_hot) # (B,C,H,W) of predicted probabilities
+    #fig, _ = plot_prediction_distribution(preds[:,label_idx,:,:]) # filter for probs for label_idx only
+    #wandb.log({"label_1/label1_avg_prediction": wandb.Image(fig)})
 
     # plot class-wise losses as barplots if multitask
     if class_losses is not None and args.is_multitask: 

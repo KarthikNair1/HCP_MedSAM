@@ -1,8 +1,0 @@
-Loading anaconda3/gpu/2022.10
-  Loading requirement: cuda/11.8
-Traceback (most recent call last):
-  File "/gpfs/home/kn2347/HCP_MedSAM_project/experiment_code/5_visualize/generate_gif_viz_for_mri_stack.py", line 155, in <module>
-    seg_arr = np.load(args.seg_path)
-  File "/gpfs/home/kn2347/.conda/envs/medsam/lib/python3.10/site-packages/numpy/lib/npyio.py", line 462, in load
-    raise ValueError("Cannot load file containing pickled data "
-ValueError: Cannot load file containing pickled data when allow_pickle=False
