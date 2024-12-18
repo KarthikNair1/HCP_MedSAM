@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=10
-#SBATCH --job-name=subset_analysis_train_singletask_unet
-#SBATCH --mem=100GB
+#SBATCH --cpus-per-task=1
+#SBATCH --job-name=subset_analysis_unet_evaluate
+#SBATCH --mem=25GB
 #SBATCH --gres=gpu:1
-#SBATCH --partition=a100_short
+#SBATCH --partition=gpu8_medium
 #SBATCH --time=02:00:00
 #SBATCH --array=0-4
 #SBATCH --exclude=a100-4020
@@ -81,34 +81,30 @@ export CUDA_VISIBLE_DEVICES='0'
 
 export label=$1
 export frac=$2
-export log_val_every=$3
-export lr=$4
-export workdir=$5
-export batch_size=$6
+export lr=$3
+export workdir=$4
 export repeat=$SLURM_ARRAY_TASK_ID
 
-mkdir -p ${workdir}/training/${lr}/${label}/${frac}/${repeat}
-if ls ${workdir}/training/${lr}/${label}/${frac}/${repeat}/*.pth 1> /dev/null 2>&1; then 
+mkdir -p ${workdir}/val/${lr}/${label}/${frac}/${repeat}/at_least_100
+if ls ${workdir}/val/${lr}/${label}/${frac}/${repeat}/at_least_100/*.pkl 1> /dev/null 2>&1; then 
     exit 1
 fi
 
 for (( i=0; i < $SLURM_NTASKS; ++i ))
 do
-    srun -lN1 --mem=100G --gres=gpu:1 -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
-    "python experiment_code/2_train_unet/train_unet.py \
-    --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_unet.csv \
-    -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/subset_train_id_dfs_pooled/repeat_experiments/${frac}/repeat${repeat}.pkl \
+    srun -lN1 --mem=25G -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
+    "python experiment_code/4_evaluate/full_eval_val_test.py \
+    --model_type singletask_unet \
+    --explicit_model_path "${workdir}/training/${lr}/${label}/${frac}/${repeat}/*.pth" \
+    --explicit_dataset_path /gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_unet.csv \
+    --dataframe_mask_npy_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_eval_dfs/at_least_100_mask_arrays/label${label}.npy \
+    --label ${label} \
+    --tag val \
+    -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
+    --batch_size 64 \
     --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
     --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv \
-    -label_id ${label} -num_classes 1 -batch_size ${batch_size} -num_workers 2 \
-    -lr ${lr} \
-    -epochs 50000 \
-    -work_dir ${workdir}/training/${lr}/${label}/${frac}/${repeat} \
-    --log_val_every ${log_val_every} \
-    -val_batch_size 256 \
-    --lambda_dice 1 \
-    -project_name singletask_unet -wandb_run_name label${label}_lr${lr}_subset_${frac}_repeat${repeat}" >> ${workdir}/training/${lr}/${label}/${frac}/${repeat}/log_for_${SLURM_JOB_ID}.log 2>&1 &
-    
+    --output_dir ${workdir}/val/${lr}/${label}/${frac}/${repeat}/at_least_100" >> ${workdir}/val/${lr}/${label}/${frac}/${repeat}/at_least_100/log_for_${SLURM_JOB_ID}.log 2>&1 &
 done
 wait ## Wait for the tasks on nodes to finish
 

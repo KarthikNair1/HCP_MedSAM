@@ -1,0 +1,44 @@
+
+MacOS or linux terminal command to create your ssh tunnel:
+ssh -N -L 9195:gpu-0001:9195 kn2347@bigpurple3.nyumc.org
+   
+For more info and how to connect from windows, 
+   see research.computing.yale.edu/jupyter-nb
+Here is the MobaXterm info:
+Forwarded port:same as remote port
+Remote server: gpu-0001
+Remote port: 9195
+SSH server: bigpurple3.nyumc.org
+SSH login: kn2347
+SSH port: 22
+Use a Browser on your local machine to go to:
+http://localhost:9195  (prefix w/ https:// if using password)
+
+Loading anaconda3/gpu/2022.10
+  Loading requirement: cuda/11.8
+Note: NumExpr detected 40 cores but "NUMEXPR_MAX_THREADS" not set, so enforcing safe limit of 8.
+NumExpr defaulting to 8 threads.
+[W 2024-11-28 10:14:54.911 ServerApp] The module 'panel.io.jupyter_server_extension' could not be found (libjpeg-183418da.so.9.4.0: cannot open shared object file: No such file or directory). Are you sure the extension is installed?
+[I 2024-11-28 10:14:54.927 ServerApp] jupyterlab | extension was successfully linked.
+/gpfs/share/apps/anaconda3/gpu/2022.10/lib/python3.9/site-packages/IPython/paths.py:59: UserWarning: IPython dir '/gpfs/home/kn2347/.ipython' is not a writable location, using a temp directory.
+  warn("IPython dir '{0}' is not a writable location,"
+[I 2024-11-28 10:14:59.257 ServerApp] nbclassic | extension was successfully linked.
+/gpfs/share/apps/anaconda3/gpu/2022.10/lib/python3.9/site-packages/IPython/paths.py:59: UserWarning: IPython dir '/gpfs/home/kn2347/.ipython' is not a writable location, using a temp directory.
+  warn("IPython dir '{0}' is not a writable location,"
+[I 2024-11-28 10:14:59.477 ServerApp] nbclassic | extension was successfully loaded.
+[I 2024-11-28 10:14:59.478 LabApp] JupyterLab extension loaded from /gpfs/share/apps/anaconda3/gpu/2022.10/lib/python3.9/site-packages/jupyterlab
+[I 2024-11-28 10:14:59.479 LabApp] JupyterLab application directory is /gpfs/share/apps/anaconda3/gpu/2022.10/share/jupyter/lab
+[I 2024-11-28 10:14:59.484 ServerApp] jupyterlab | extension was successfully loaded.
+[I 2024-11-28 10:14:59.485 ServerApp] Serving notebooks from local directory: /gpfs/home/kn2347/HCP_MedSAM_project
+[I 2024-11-28 10:14:59.485 ServerApp] Jupyter Server 1.18.1 is running at:
+[I 2024-11-28 10:14:59.485 ServerApp] http://gpu-0001:9195/lab?token=d4fd74ed3802a1209c391823fbd7199a072489a7d51238b7
+[I 2024-11-28 10:14:59.485 ServerApp]  or http://127.0.0.1:9195/lab?token=d4fd74ed3802a1209c391823fbd7199a072489a7d51238b7
+[I 2024-11-28 10:14:59.485 ServerApp] Use Control-C to stop this server and shut down all kernels (twice to skip confirmation).
+[C 2024-11-28 10:14:59.514 ServerApp] 
+    
+    To access the server, open this file in a browser:
+        file:///gpfs/home/kn2347/.local/share/jupyter/runtime/jpserver-2035800-open.html
+    Or copy and paste one of these URLs:
+        http://gpu-0001:9195/lab?token=d4fd74ed3802a1209c391823fbd7199a072489a7d51238b7
+     or http://127.0.0.1:9195/lab?token=d4fd74ed3802a1209c391823fbd7199a072489a7d51238b7
+slurmstepd-gpu-0001: error: *** JOB 55369897 ON gpu-0001 CANCELLED AT 2024-12-01T10:14:55 DUE TO TIME LIMIT ***

@@ -54,7 +54,7 @@ def load_model(model_type, model_path, num_classes):
             print(f'model path converted to sam readable format and saved to {new_path}')
 
             result = result['model']
-
+            
             # now remove the "module." prefix
             result_dict = {}
             for k,v in result.items():

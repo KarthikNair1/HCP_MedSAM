@@ -48,7 +48,10 @@ def weighted_dice_loss(pred, gt, weights, as_one_hot=True):
     if as_one_hot:
         B, C, H, W = pred.shape
         #loss_fn = monai.losses.DiceLoss(sigmoid=True, squared_pred=True, reduction='none') 
-        assert torch.any(pred < 0) or torch.any(pred > 1)
+        if not (torch.any(pred < 0) or torch.any(pred > 1)): # if the pred values look like probabilities rather than pre-sigmoid outputs
+            print(f'Predictions may be erroneously generated as probabilities: max: {torch.max(pred)} min: {torch.min(pred)}')
+            assert False
+
         loss_fn = loss_fn = monai.losses.DiceLoss(sigmoid=True, squared_pred=True, reduction='mean', include_background = True, batch = True) 
         return loss_fn(pred, gt), None # scalar
         

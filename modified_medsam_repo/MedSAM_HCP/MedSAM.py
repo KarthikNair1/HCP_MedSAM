@@ -40,9 +40,19 @@ class MedSAM(nn.Module):
         with torch.no_grad():
             #image_embedding = self.image_encoder(image) # (B, 256, 64, 64), don't need to run this b/c precomputed embeddings
             box_torch = torch.as_tensor(box, dtype=torch.float32, device=image_embedding.device)
+
+            nan_mask = torch.any(torch.isnan(box_torch), dim=1) # (B) tensor
+            #if torch.all(nan_mask): # skips over empty batches
+            #    return torch.zeros((box_torch.shape[0], num_classes, H, W))
+            
+            # replace bbox values of nan_mask with 0s for now, and at the end we'll mask them out with zeros
+            box_torch[nan_mask, :] = 0
+
+
             if len(box_torch.shape) == 2:
                 box_torch = box_torch[:, None, :] # (B, 1, 4)
 
+            
             sparse_embeddings, dense_embeddings = self.prompt_encoder(
                 points=None,
                 boxes=box_torch,
@@ -54,8 +64,8 @@ class MedSAM(nn.Module):
             sparse_prompt_embeddings=sparse_embeddings, # (B, 2, 256)
             dense_prompt_embeddings=dense_embeddings, # (B, 256, 64, 64)
             multimask_output=self.multimask_output
-          )
-
+        )
+        low_res_masks[nan_mask, :, :, :] = -1e4
         #ori_res_masks = F.interpolate(low_res_masks, size=(image.shape[2], image.shape[3]), mode='bilinear', align_corners=False)
         #return ori_res_masks
         return low_res_masks

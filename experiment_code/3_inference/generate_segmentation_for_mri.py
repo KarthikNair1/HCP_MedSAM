@@ -182,6 +182,7 @@ if args.model_type == 'singletask_unet':
         pattern = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/unet_retrain_all_labels_9-9-24/training/{label}/*-best_model.pth'
         if args.explicit_model_path is not None:
             pattern = args.explicit_model_path
+            print(f'Model pattern is {pattern}')
         model_path = glob(pattern)[0]
         model = load_model(args.model_type, model_path, num_classes=1)
         dataset = MRIDataset_Imgs(df, label_id = label, bbox_shift=0, label_converter = label_converter, NUM_CLASSES=2, as_one_hot=True, pool_labels=False, preprocess_fn=preprocess_input)
@@ -193,9 +194,10 @@ elif args.model_type in ['singletask_unprompted', 'singletask_yolov7_prompted']:
     for label in tqdm(labels_to_iter):
         # prep the model and dataset for this
         if args.model_type == 'singletask_unprompted':
-            pattern = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_retrain_9-12-24/training/{label}/0.001/*/medsam_model_best_sam_readable.pth'
+            pattern = f'/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_retrain_dice_11-1-24/training/{label}/*/*/medsam_model_best.pth'
         #elif args.model_type == 'singletask_yolov7_prompted':
         if args.explicit_model_path is not None:
+            print(f'Model pattern is {pattern}')
             pattern = args.explicit_model_path
         model_path = glob(pattern)[0]
 

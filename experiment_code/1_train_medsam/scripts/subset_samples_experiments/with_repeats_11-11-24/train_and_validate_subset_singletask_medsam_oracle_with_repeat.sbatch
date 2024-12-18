@@ -2,7 +2,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=10
-#SBATCH --job-name=singletask_unet
+#SBATCH --job-name=singletask_medsam_oracle
 #SBATCH --mem=100GB
 #SBATCH --gres=gpu:1
 #SBATCH --partition=a100_short
@@ -92,16 +92,21 @@ if ls ${workdir}/training/${lr}/${label}/${frac}/${repeat}/*/*.pth 1> /dev/null 
     exit 1
 fi
 
+mkdir -p ${workdir}/val/${lr}/${label}/${frac}/${repeat}
+if ls ${workdir}/training/${lr}/${label}/${frac}/${repeat}/*/*.pth 1> /dev/null 2>&1; then 
+    exit 1
+fi
+
 for (( i=0; i < $SLURM_NTASKS; ++i ))
 do
-    srun -lN1 --mem=100G --gres=gpu:1 -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
+    srun --time=02:00:00 -lN1 --mem=100G --gres=gpu:1 -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
     "python experiment_code/1_train_medsam/train_multi_gpus_modified_multiclass.py \
-        --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_constant_bbox.csv \
+        --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_bboxes_from_ground_truth.csv \
         --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
         --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/class_mappings/label${label}_only_name_class_mapping.csv \
         -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/subset_train_id_dfs_pooled/repeat_experiments/${frac}/repeat${repeat}.pkl \
         -task_name singletask_medsam_no_yolo \
-        --wandb_run_name label${label}_lr${lr}_subset_${frac}_repeat${repeat} \
+        --wandb_run_name With_Oracle_label${label}_lr${lr}_subset_${frac}_repeat${repeat} \
         -checkpoint /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/medsam_vit_b.pth \
         -work_dir ${workdir}/training/${lr}/${label}/${frac}/${repeat} \
         -label_id 1 \
@@ -124,9 +129,11 @@ do
     
     srun -lN1 --mem=100G -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
     "python experiment_code/4_evaluate/full_eval_val_test.py \
-    --model_type singletask_unprompted \
-    --explicit_model_path ${workdir}/val/${lr}/${label}/${frac}/${repeat}/*/*.pth \
-    --explicit_dataset_path /gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv \
+    --model_type singletask_yolov7_prompted \
+    --explicit_model_path ${workdir}/training/${lr}/${label}/${frac}/${repeat}/*/_model_latest.pth \
+    --explicit_yolo_bbox_dataframe_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_bboxes_from_ground_truth.csv
+    --explicit_dataframe_to_merge_with_yolo_path /gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv \
+    --dataframe_mask_npy_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_eval_dfs/at_least_100_mask_arrays/label${label}.npy \
     --label ${label} \
     --tag val \
     -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \

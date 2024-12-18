@@ -2,13 +2,14 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=10
-#SBATCH --job-name=subset_analysis_train_singletask_unet
+#SBATCH --job-name=singletask_medsam
 #SBATCH --mem=100GB
 #SBATCH --gres=gpu:1
 #SBATCH --partition=a100_short
 #SBATCH --time=02:00:00
-#SBATCH --array=0-4
-#SBATCH --exclude=a100-4020
+#SBATCH --array=1,5,7
+#SBATCH --exclude=a100-4005,a100-4020
+
 cd /gpfs/home/kn2347/HCP_MedSAM_project
 set -x -e
 
@@ -74,41 +75,44 @@ export WANDB_CONFIG_DIR='/gpfs/home/kn2347/.config/wandb'
 export WANDB_DIR='/gpfs/home/kn2347/wandb'
 #export CUDA_VISIBLE_DEVICES='0,1,2,3'
 #export CUDA_VISIBLE_DEVICES='0'
-export CUDA_VISIBLE_DEVICES='0'
+export CUDA_VISIBLE_DEVICES='0,1'
 
+export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/GT_boxes_medsam_11-22-24/training'
+export label=$SLURM_ARRAY_TASK_ID
+export frac=1
+export repeat=0
 
-#export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/subsets_expt_unet_9-12-24/training'
-
-export label=$1
-export frac=$2
-export log_val_every=$3
-export lr=$4
-export workdir=$5
-export batch_size=$6
-export repeat=$SLURM_ARRAY_TASK_ID
-
-mkdir -p ${workdir}/training/${lr}/${label}/${frac}/${repeat}
-if ls ${workdir}/training/${lr}/${label}/${frac}/${repeat}/*.pth 1> /dev/null 2>&1; then 
+mkdir -p ${workdir}/0.0005/${label}/${frac}/${repeat}
+if ls ${workdir}/0.0005/${label}/${frac}/${repeat}/*/*.pth 1> /dev/null 2>&1; then 
     exit 1
 fi
 
 for (( i=0; i < $SLURM_NTASKS; ++i ))
 do
     srun -lN1 --mem=100G --gres=gpu:1 -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
-    "python experiment_code/2_train_unet/train_unet.py \
-    --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_unet.csv \
-    -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/subset_train_id_dfs_pooled/repeat_experiments/${frac}/repeat${repeat}.pkl \
-    --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
-    --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv \
-    -label_id ${label} -num_classes 1 -batch_size ${batch_size} -num_workers 2 \
-    -lr ${lr} \
-    -epochs 50000 \
-    -work_dir ${workdir}/training/${lr}/${label}/${frac}/${repeat} \
-    --log_val_every ${log_val_every} \
-    -val_batch_size 256 \
-    --lambda_dice 1 \
-    -project_name singletask_unet -wandb_run_name label${label}_lr${lr}_subset_${frac}_repeat${repeat}" >> ${workdir}/training/${lr}/${label}/${frac}/${repeat}/log_for_${SLURM_JOB_ID}.log 2>&1 &
-    
+    "python experiment_code/1_train_medsam/train_multi_gpus_modified_multiclass.py \
+        --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_bboxes_from_ground_truth.csv \
+        --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
+        --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/class_mappings/label${label}_only_name_class_mapping.csv \
+        -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/subset_train_id_dfs_pooled/repeat_experiments/${frac}/repeat${repeat}.pkl \
+        -task_name singletask_medsam_no_yolo \
+        --wandb_run_name GT_boxes_label${label}_lr0.0005_diceloss \
+        -checkpoint /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/medsam_vit_b.pth \
+        -work_dir ${workdir}/0.0005/${label}/${frac}/${repeat} \
+        -label_id 1 \
+        -batch_size 8 \
+        -num_workers 4 \
+        -num_epochs 1000000 \
+        --lambda_dice 1 \
+        -lr 0.0005 \
+        -use_wandb True \
+        -use_amp \
+        --suppress_train_debug_imgs \
+        --world_size ${WORLD_SIZE} \
+        --bucket_cap_mb 25 \
+        --grad_acc_steps 1 \
+        --node_rank ${i} \
+        --init_method tcp://${MASTER_ADDR}:${MASTER_PORT}" >> ${workdir}/0.0005/${label}/${frac}/${repeat}/log_for_${SLURM_JOB_ID}.log 2>&1 &
 done
 wait ## Wait for the tasks on nodes to finish
 
