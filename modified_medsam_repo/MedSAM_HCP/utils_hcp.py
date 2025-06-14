@@ -41,8 +41,10 @@ def load_and_preprocess_slice(ds, img_idx, dev='cuda'):
     img_embedding, img_seg, img_box = img_embedding.to(dev), img_seg.to(dev), img_box.to(dev)
 
     # reshape for computation
-    img_embedding = img_embedding[None, :, :, :]
-    img_box = img_box.reshape((1,4))
+    if len(img_embedding.shape) == 3:
+        img_embedding = img_embedding[None, :, :, :]
+    if len(img_box.shape) == 1:
+        img_box = img_box.reshape((1,4))
     img_box_1024 = img_box * 4 # for ori model
     img_seg = img_seg.cpu().numpy()
 
@@ -137,7 +139,7 @@ def plot_random_example(test_ds, model_list, names_list, label_to_viz, as_one_ho
             for model in model_list:
                 
                 this_seg_result = medsam_inference(model, img_embedding, img_box, H=dest_H, W=dest_W, as_one_hot=as_one_hot,
-                                                   model_trained_on_multi_label=model_trained_on_multi_label)
+                                                   model_trained_on_multi_label=model_trained_on_multi_label, num_classes=C)
 
                 this_seg_result = np.reshape(this_seg_result, (C, dest_H, dest_W)) #(classes, dest_H,dest_W))
                 #if debug:

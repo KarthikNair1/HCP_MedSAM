@@ -221,10 +221,14 @@ def load_data_from_label_and_type(model_type, label, tag, args):
         df_boxes = df_boxes[df_boxes['id'].isin(ids)].reset_index(drop=True)
 
         df_all_samples = df_all_samples.drop(columns = ['bbox_0', 'bbox_1', 'bbox_2', 'bbox_3'])
-        df = df_all_samples.merge(df_boxes, how='left', on=['id','slice','image_embedding_slice_path', 'segmentation_slice_path', 'image_path'])
+        df_boxes = df_boxes[['id', 'slice', 'bbox_0', 'bbox_1', 'bbox_2', 'bbox_3']]
+        #df = df_all_samples.merge(df_boxes, how='left', on=['id','slice','image_embedding_slice_path', 'segmentation_slice_path', 'image_path'])
+        df = df_all_samples.merge(df_boxes, how='left', on=['id','slice'])
 
         label_id = 1
         pool_labels = False
+
+        print(f'Loading prog: {this_path} {args.explicit_dataframe_to_merge_with_yolo_path}')
     
     elif model_type in ['singletask_unet']:
         df = pd.read_csv('/gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_unet.csv')
@@ -249,6 +253,8 @@ def load_data_from_label_and_type(model_type, label, tag, args):
     else:
         dataset = MRIDataset(df, label_id = label_id, bbox_shift=0, label_converter = label_converter, NUM_CLASSES=NUM_CLASSES, as_one_hot=True, pool_labels=pool_labels)
     
+    print(f'At end of loading: {df.loc[0,"image_embedding_slice_path"]}')
+
     return df_hcp, df_desired, NUM_CLASSES, label_converter, dataset
 
 def run_model_over_dataset(model, dataset, model_type, args):

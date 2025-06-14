@@ -52,10 +52,12 @@ class MedSAM(nn.Module):
             if len(box_torch.shape) == 2:
                 box_torch = box_torch[:, None, :] # (B, 1, 4)
 
-            
+            assert torch.max(box_torch) <= 256
+            box_torch_1024 = box_torch * 4 # MedSAM prompt encoder expects the box to be on a 1024x1024 image, so because we used 256x256, we should scale up by 4
+
             sparse_embeddings, dense_embeddings = self.prompt_encoder(
                 points=None,
-                boxes=box_torch,
+                boxes=box_torch_1024,
                 masks=None,
             )
         low_res_masks, _ = self.mask_decoder(
@@ -99,9 +101,10 @@ def convert_logits_to_preds_onehot(logits, as_one_hot, H, W):
     return medsam_seg
 
 def medsam_inference(medsam_model, img_embed, box_1024, H, W, as_one_hot, model_trained_on_multi_label=True,
-                    num_classes=103):
+                    num_classes=1):
     
     box_torch = torch.as_tensor(box_1024, dtype=torch.float, device=img_embed.device)
+    
     nan_mask = torch.any(torch.isnan(box_torch), dim=1) # (B) tensor
     if torch.all(nan_mask): # skips over empty batches
         return torch.zeros((box_torch.shape[0], num_classes, H, W))
@@ -111,9 +114,12 @@ def medsam_inference(medsam_model, img_embed, box_1024, H, W, as_one_hot, model_
     
     if len(box_torch.shape) == 2:
         box_torch = box_torch[:, None, :] # (B, 1, 4)
+
+        assert torch.max(box_torch) <= 256
+        box_torch_1024 = box_torch * 4 # MedSAM prompt encoder expects the box to be on a 1024x1024 image, so because we used 256x256, we should scale up by 4
     sparse_embeddings, dense_embeddings = medsam_model.prompt_encoder(
         points=None,
-        boxes=box_torch,
+        boxes=box_torch_1024,
         masks=None,
     )
     low_res_logits, _ = medsam_model.mask_decoder(

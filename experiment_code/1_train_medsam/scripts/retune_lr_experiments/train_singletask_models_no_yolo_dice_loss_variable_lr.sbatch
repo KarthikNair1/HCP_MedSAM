@@ -8,7 +8,7 @@
 #SBATCH --partition=a100_short
 
 #SBATCH --time=1-00:00:00
-#SBATCH --exclude=a100-4020,a100-4023,a100-4017,a100-4018,a100-4019,a100-4011
+#SBATCH --exclude=a100-4020,a100-4023,a100-4017,a100-4018,a100-4019,a100-4011,a100-4033,a100-4026
 
 cd /gpfs/home/kn2347/HCP_MedSAM_project
 set -x -e
@@ -79,10 +79,10 @@ export CUDA_VISIBLE_DEVICES='0,1'
 
 export label=$1
 export lr=$2
-export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_dice_retune_lr_11-3-24/training'
+export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/hyperparam_tuning/main_analysis_LR_1-16-25/MedSAM/training'
 
 mkdir -p ${workdir}/${label}/${lr}
-if ls ${workdir}/${label}/${lr}/*.pth 1> /dev/null 2>&1; then 
+if ls ${workdir}/${label}/${lr}/*/*.pth 1> /dev/null 2>&1; then 
     exit 1
 fi
 
@@ -95,13 +95,13 @@ do
         --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/class_mappings/label${label}_only_name_class_mapping.csv \
         -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
         -task_name singletask_medsam_no_yolo \
-        --wandb_run_name label${label}_lr${lr} \
+        --wandb_run_name hyperparam_LR_label${label}_lr${lr} \
         -checkpoint /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/medsam_vit_b.pth \
         -work_dir ${workdir}/${label}/${lr} \
         -label_id 1 \
         -batch_size 256 \
         -num_workers 4 \
-        -num_epochs 5 \
+        -num_epochs 10 \
         --lambda_dice 1 \
         -lr ${lr} \
         -use_wandb True \

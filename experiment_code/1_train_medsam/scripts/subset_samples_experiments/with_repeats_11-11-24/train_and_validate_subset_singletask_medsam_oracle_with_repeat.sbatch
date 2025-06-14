@@ -8,7 +8,7 @@
 #SBATCH --partition=a100_short
 #SBATCH --time=02:00:00
 #SBATCH --array=0-4
-#SBATCH --exclude=a100-4020
+#SBATCH --exclude=a100-4020,a100-4005,a100-4004
 cd /gpfs/home/kn2347/HCP_MedSAM_project
 set -x -e
 
@@ -92,11 +92,6 @@ if ls ${workdir}/training/${lr}/${label}/${frac}/${repeat}/*/*.pth 1> /dev/null 
     exit 1
 fi
 
-mkdir -p ${workdir}/val/${lr}/${label}/${frac}/${repeat}
-if ls ${workdir}/training/${lr}/${label}/${frac}/${repeat}/*/*.pth 1> /dev/null 2>&1; then 
-    exit 1
-fi
-
 for (( i=0; i < $SLURM_NTASKS; ++i ))
 do
     srun --time=02:00:00 -lN1 --mem=100G --gres=gpu:1 -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
@@ -127,20 +122,6 @@ do
         --init_method tcp://${MASTER_ADDR}:${MASTER_PORT}" >> ${workdir}/training/${lr}/${label}/${frac}/${repeat}/log_for_${SLURM_JOB_ID}.log 2>&1 &
 
     
-    srun -lN1 --mem=100G -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
-    "python experiment_code/4_evaluate/full_eval_val_test.py \
-    --model_type singletask_yolov7_prompted \
-    --explicit_model_path ${workdir}/training/${lr}/${label}/${frac}/${repeat}/*/_model_latest.pth \
-    --explicit_yolo_bbox_dataframe_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_bboxes_from_ground_truth.csv
-    --explicit_dataframe_to_merge_with_yolo_path /gpfs/data/luilab/karthik/pediatric_seg_proj/path_df_constant_bbox.csv \
-    --dataframe_mask_npy_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_eval_dfs/at_least_100_mask_arrays/label${label}.npy \
-    --label ${label} \
-    --tag val \
-    -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
-    --batch_size 64 \
-    --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
-    --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv \
-    --output_dir ${workdir}/val/${lr}/${label}/${frac}/${repeat}" >> ${workdir}/val/${lr}/${label}/${frac}/${repeat}/log_for_${SLURM_JOB_ID}.log 2>&1 &
 done
 wait ## Wait for the tasks on nodes to finish
 

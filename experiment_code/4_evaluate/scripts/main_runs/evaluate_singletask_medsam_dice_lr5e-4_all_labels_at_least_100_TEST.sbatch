@@ -25,10 +25,10 @@ module purge
 module load slurm/current
 
 export CUDA_VISIBLE_DEVICES='0'
-export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_retrain_dice_11-1-24'
+export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/main_analysis_12-18-24/MedSAM'
 export label=$SLURM_ARRAY_TASK_ID
-mkdir -p ${workdir}/test/${label}/0.0005/at_least_100
-if ls ${workdir}/test/${label}/0.0005/at_least_100/*.pkl 1> /dev/null 2>&1; then 
+mkdir -p ${workdir}/test/${label}/0.0005/at_least_100_pixels
+if ls ${workdir}/test/${label}/0.0005/at_least_100_pixels/*.pkl 1> /dev/null 2>&1; then 
     exit 1
 fi
 
@@ -46,7 +46,7 @@ do
     --batch_size 64 \
     --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
     --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/darts_name_class_mapping_processed.csv \
-    --output_dir ${workdir}/test/${label}/0.0005/at_least_100" >> ${workdir}/test/${label}/0.0005/at_least_100/log_for_${SLURM_JOB_ID}.log 2>&1 &
+    --output_dir ${workdir}/test/${label}/0.0005/at_least_100_pixels" >> ${workdir}/test/${label}/0.0005/at_least_100_pixels/log_for_${SLURM_JOB_ID}.log 2>&1 &
 done
 wait ## Wait for the tasks on nodes to finish
 

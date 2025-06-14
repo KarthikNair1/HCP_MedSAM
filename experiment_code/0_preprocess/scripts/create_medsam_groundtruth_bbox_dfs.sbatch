@@ -4,9 +4,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --job-name=make_gt_bbox_df
 #SBATCH --mem=16GB
-#SBATCH --partition=cpu_medium
+#SBATCH --partition=cpu_dev
 #SBATCH --time=04:00:00
-#SBATCH --exclude=a100-4020
 #SBATCH --array=1-102
 
 cd /gpfs/home/kn2347/HCP_MedSAM_project
@@ -16,7 +15,7 @@ conda activate medsam
 module purge
 
 label=${SLURM_ARRAY_TASK_ID}
-export outdir=/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_bboxes_from_ground_truth.csv
+outdir=/gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_bboxes_from_ground_truth.csv
 if ls ${outdir} 1> /dev/null 2>&1; then 
     exit 1
 fi

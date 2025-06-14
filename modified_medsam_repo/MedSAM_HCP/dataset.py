@@ -28,7 +28,7 @@ class MRIDataset(Dataset):
         self.as_one_hot = as_one_hot
         self.pool_labels = pool_labels
         self.preprocess_fn = preprocess_fn
-
+        
         if self.label_converter is None:
             print('Initializing with no label converter, are you sure the labels are correct?')
 
@@ -88,7 +88,7 @@ class MRIDataset(Dataset):
             x_max = min(W, x_max + random.randint(0, self.bbox_shift))
             y_min = max(0, y_min - random.randint(0, self.bbox_shift))
             y_max = min(H, y_max + random.randint(0, self.bbox_shift))
-
+        
         bboxes = np.array([x_min, y_min, x_max, y_max])
 
         return torch.tensor(img_embed_npy).float(), seg_tens, torch.tensor(bboxes).float(), img_slice_name
@@ -111,6 +111,86 @@ class MRIDatasetForPooled(MRIDataset):
     def load_image(self, index):
         return super().load_image(index)
 
+class MRIDatasetForPooledTraining(MRIDataset):
+    def __init__(self, data_frame, label_id=None, bbox_shift=0, label_converter=None, NUM_CLASSES = 256, as_one_hot = True, pool_labels = False, preprocess_fn = None):
+        assert pool_labels
+        super().__init__(data_frame, label_id, bbox_shift, label_converter, NUM_CLASSES, as_one_hot, pool_labels)
+    def __len__(self):
+        return super().__len__()
+    def __getitem__(self, index):
+        # if index is a single value, convert to list
+        if isinstance(index, int):
+            index = [index]
+            
+        # load image embedding, segmentation mask, bounding box, and label number for each sample
+        
+        # Get unique (MRI, slice) pairs to avoid repeated computation
+        unique_pairs = self.data_frame.loc[index, ['id', 'slice']].drop_duplicates().index
+        
+        # Initialize dictionaries to store loaded data
+        img_embed_dict = {}
+        seg_npy_dict = {}
+        
+        # Load image embeddings and segmentation masks for unique pairs
+        for idx in unique_pairs:
+            hash_pair = (self.data_frame.loc[idx, 'id'], self.data_frame.loc[idx, 'slice'])
+
+            img_embed_path = self.data_frame.loc[idx, 'image_embedding_slice_path']
+            img_embed_npy = np.load(img_embed_path)
+            if self.preprocess_fn is not None:
+                img_embed_npy = self.preprocess_fn(img_embed_npy)
+            img_embed_dict[hash_pair] = img_embed_npy
+            
+            seg_path = self.data_frame.loc[idx, 'segmentation_slice_path']
+            if isinstance(seg_path, str) and os.path.exists(seg_path):
+                seg_npy = np.load(seg_path)
+            else:
+                seg_npy = np.full((256, 256), np.nan)
+            if self.label_converter is not None:
+                seg_npy = self.label_converter.hcp_to_compressed(seg_npy)
+            seg_npy_dict[hash_pair] = seg_npy
+        
+        # Prepare the batch data
+        batch_img_embeds = []
+        batch_seg_tens = []
+        batch_bboxes = []
+        batch_img_slice_names = []
+        batch_label_numbers = []
+        
+        for idx in index:
+            hash_pair = (self.data_frame.loc[idx, 'id'], self.data_frame.loc[idx, 'slice'])
+
+            img_embed_npy = img_embed_dict[hash_pair]
+            seg_npy = seg_npy_dict[hash_pair]
+        
+            label_number = self.data_frame.loc[idx, 'label_number']
+
+            seg_npy = (seg_npy == label_number).astype(np.uint8)
+            seg_tens = torch.tensor(seg_npy[None, :, :]).long()
+            
+            x_min, x_max = self.data_frame.loc[idx, 'bbox_0'], self.data_frame.loc[idx, 'bbox_2']
+            y_min, y_max = self.data_frame.loc[idx, 'bbox_1'], self.data_frame.loc[idx, 'bbox_3']
+            
+            if not np.any(np.isnan([x_min, x_max, y_min, y_max])):
+                H, W = seg_npy.shape
+                x_min = max(0, x_min - random.randint(0, self.bbox_shift))
+                x_max = min(W, x_max + random.randint(0, self.bbox_shift))
+                y_min = max(0, y_min - random.randint(0, self.bbox_shift))
+                y_max = min(H, y_max + random.randint(0, self.bbox_shift))
+            
+            bboxes = np.array([x_min, y_min, x_max, y_max])
+            img_slice_name = '_slice'.join(self.data_frame.loc[idx, 'image_embedding_slice_path'].split('/')[-2:])
+            
+            batch_img_embeds.append(torch.tensor(img_embed_npy).float())
+            batch_seg_tens.append(seg_tens)
+            batch_bboxes.append(torch.tensor(bboxes).float())
+            batch_img_slice_names.append(img_slice_name)
+            batch_label_numbers.append(self.data_frame.loc[idx, 'label_number'])
+        
+        return torch.stack(batch_img_embeds), torch.stack(batch_seg_tens), torch.stack(batch_bboxes), batch_img_slice_names
+
+    def load_image(self, index):
+        return super().load_image(index)
 # Dataset class initially written for training UNet
 # Allows for loading images for training rather than np arrays. Designed for single or multi-class
 # No bounding box or slice name
@@ -223,6 +303,7 @@ class LabelConverter():
         self.hcp_to_name_d = dict.fromkeys(hcp_mapping['region_index'].values, 'None')
         self.comp_to_hcp_d = dict.fromkeys(merged['region_index_hcp'].values, 0)
         self.comp_to_name_d = dict.fromkeys(merged['region_index_hcp'].values, 'None')
+        self.name_to_comp_d = dict.fromkeys(merged['region_name'], 0)
         #print(merged)
         # then go through and fill the regions that were desired and update the dictionary for these
         for index, row in merged.iterrows():
@@ -231,6 +312,7 @@ class LabelConverter():
             self.hcp_to_comp_d[region_index_hcp] = region_index_desired
             self.comp_to_name_d[region_index_desired] = region_name
             self.comp_to_hcp_d[region_index_desired] = region_index_hcp
+            self.name_to_comp_d[region_name] = region_index_desired
 
         # the dictionaries are now ready to be mapped across the index arrays
         return
@@ -243,4 +325,6 @@ class LabelConverter():
         return np.vectorize(self.hcp_to_name_d.get)(index_array)
     def compressed_to_name(self, index_array: np.array) -> np.array:
         return np.vectorize(self.comp_to_name_d.get)(index_array)
+    def name_to_compressed(self, index_array: np.array) -> np.array:
+        return np.vectorize(self.name_to_comp_d.get)(index_array)
         

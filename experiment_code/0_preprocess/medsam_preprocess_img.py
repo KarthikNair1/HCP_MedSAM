@@ -29,7 +29,10 @@ parser.add_argument("--dest_image_encoding_dir", type = str, help = "Target dire
 parser.add_argument("--dest_seg_dir", type = str, default = None, help = "Target directory for saving all image segmentations, e.g. /gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/segmentation_slices")
 parser.add_argument("--dest_img_dir", type = str, help = "Target directory for saving all raw images, e.g. /gpfs/data/luilab/karthik/pediatric_seg_proj/hcp_ya_slices_npy/images")
 parser.add_argument("--id_index_in_path", type=int, default = -3, help = 'In the path to an mri, at what directory level is the id for the mri that will be used for file names? Should be a python index, e.g negative references back to front')
+parser.add_argument("--seg_suffix", type=str, default = "aparc+aseg.mgz", help = 'What is the suffix for the segmentation file?')
 parser.add_argument("--image_norm_max", type=float, default = None, help = 'What should be the png file max value after normalized and rescaling?')
+parser.add_argument("--slice_axis", type=int, default = 1, help = 'Which axis to slice the MRI on?')
+
 parser.add_argument("--device", type = str, default = "cuda", help = 'cuda or cpu?')
 
 args = parser.parse_args()
@@ -73,17 +76,19 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
     
     # load the MRI file and the segmentation file using nibabel
     data_mri = nib.load(p).get_fdata()
+    print(data_mri.shape)
 
     # get max value for purposes of normalization
     max_value = data_mri.max()
 
     # for every slice, calculate the image encoding and save it, as well as the segmentation file as .npy's
-    for slice in range(data_mri.shape[1]):
+    for slice in range(data_mri.shape[args.slice_axis]):
         
         slice_path = f'{folder_dir}/{slice}.npy'
 
         if not os.path.exists(slice_path): # save image encoding
-            x = data_mri[:,slice,:]
+            #x = data_mri[:,slice,:]
+            x = np.take(data_mri, slice, axis=args.slice_axis)
             if x.max() > 0:
                 if args.image_norm_max is None:
                     x = (x / max_value * 255).astype('uint8')
@@ -110,7 +115,8 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
         img_dest_dir = os.path.join(img_dir, f'{id}_slice{slice}.png')
 
         if not os.path.exists(img_dest_dir):
-            x = data_mri[:,slice,:]
+            #x = data_mri[:,slice,:]
+            x = np.take(data_mri, slice, axis=args.slice_axis)
             if x.max() > 0:
                 if args.image_norm_max is None:
                     x = (x / max_value * 255).astype('uint8')
@@ -128,14 +134,16 @@ for p in paths[start_idx:min(end_idx, len(paths))]:
         
         
         if segment_root_dir is not None:
-            seg_path = os.path.join('/'.join(p.split('/')[:-1]), 'aparc+aseg.mgz')
+            seg_path = os.path.join('/'.join(p.split('/')[:-1]), '*' + args.seg_suffix)
+            seg_path = glob.glob(seg_path)[0]
             data_segmentation = nib.load(seg_path).get_fdata()
             seg_slice_path = f'{segment_folder_dir}/seg_{slice}.npy'
 
             if not os.path.exists(seg_slice_path): # save freesurfer mask
 
-                y = data_segmentation[:, slice, :].astype(int) # 256 x 256 now
-                assert y.shape == (256, 256)
+                #y = data_segmentation[:, slice, :].astype(int) # 256 x 256 now
+                y = np.take(data_segmentation, slice, axis=args.slice_axis).astype(int)
+                #assert y.shape == (256, 256)
 
                 np.save(seg_slice_path, y) # saved as (256, 256)
 

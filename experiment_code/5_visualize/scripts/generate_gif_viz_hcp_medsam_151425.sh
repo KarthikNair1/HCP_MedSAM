@@ -1,4 +1,0 @@
-mri_path='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/skull_stripped_hcp_experiment_10-24-24/inputs/pngs/151425/151425_slice*.png'
-seg_path='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/skull_stripped_hcp_experiment_10-24-24/segmentations/151425/singletask_seg_all.npy'
-output_dir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/skull_stripped_hcp_experiment_10-24-24/region_animations/151425/medsam'
-sbatch /gpfs/home/kn2347/HCP_MedSAM_project/experiment_code/5_visualize/scripts/generate_gif_viz_for_mri_stack.sbatch "${mri_path}" ${seg_path} ${output_dir}

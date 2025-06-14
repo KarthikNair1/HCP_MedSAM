@@ -119,6 +119,7 @@ if args.pool_labels and args.label_id is None: # this should not happen
     assert False
 
 # device = args.device
+assert torch.cuda.is_available(), "No GPU available on node."
 run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
 model_save_path = join(args.work_dir, args.task_name + '-' + args.wandb_run_name + '-' + run_id)
 
@@ -239,12 +240,20 @@ def main_worker(gpu, ngpus_per_node, args):
 
     print('Number of parameters: ', sum(p.numel() for p in mask_dec_params if p.requires_grad)) # 93729252 if mask_decoder only
 
+    dataset_type = MRIDataset
+    if args.pool_labels:
+        dataset_type = MRIDatasetForPooledTraining
+    
     train_dataset, val_dataset, test_dataset = load_datasets(
         args.data_frame_path, args.train_test_splits, args.label_id, 
         bbox_shift=args.bbox_shift, sample_n_slices = args.sample_n_slices, 
         label_converter=label_converter, NUM_CLASSES=NUM_CLASSES, 
-        as_one_hot=args.as_one_hot, pool_labels=args.pool_labels
+        as_one_hot=args.as_one_hot, pool_labels=args.pool_labels,
+        dataset_type = dataset_type
     )
+
+    print('Number of training samples: ', len(train_dataset))
+    print('Number of validation samples: ', len(val_dataset))
 
     # set learning rate scheduling now that we know number of batches in each epoch
     if args.learning_rate_scheduler not in [None, 'None']:
@@ -254,34 +263,48 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         lr_scheduler = None
     
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
-
     # get class weights if specified, or populate with tensor of 1's if not specified
     class_weights_tensor = retrieve_class_weights_tensor(NUM_CLASSES_FOR_LOSS, label_converter, args)
     
-    print('Number of training samples: ', len(train_dataset))
-    print('Number of validation samples: ', len(val_dataset))
+    # set sampler and dataloader
 
-    # Distributed sampler does shuffling intrinsically,
-    # So no need to shuffle in dataloader if sampler is defined
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size = args.batch_size,
-        shuffle = (train_sampler is None),
-        num_workers = args.num_workers,
-        pin_memory = True,
-        sampler = train_sampler
-    )
-
-    val_dataloader = DataLoader(
-        val_dataset,
-        batch_size = args.val_batch_size if args.val_batch_size is not None else args.batch_size,
-        shuffle = (val_sampler is None),
-        num_workers = args.num_workers,
-        pin_memory = True,
-        sampler = val_sampler
-    )
+    if args.pool_labels:
+        # batchsampler instead
+        # and instead of using DistributedSampler, just sample without shuffling
+        train_sampler = torch.utils.data.BatchSampler(torch.utils.data.SequentialSampler(train_dataset), batch_size=args.batch_size, drop_last=True)
+        val_sampler = torch.utils.data.BatchSampler(torch.utils.data.SequentialSampler(val_dataset),
+            batch_size=args.val_batch_size if args.val_batch_size is not None else args.batch_size,
+            drop_last=True
+        )
+        train_dataloader = DataLoader(
+            train_dataset, batch_size = None, shuffle = False, num_workers = args.num_workers, pin_memory = True,
+            sampler = train_sampler
+        )
+        val_dataloader = DataLoader(
+            val_dataset,
+            batch_size = None,
+            shuffle = False, num_workers = args.num_workers, pin_memory = True,
+            sampler = val_sampler
+        )
+    else:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size = args.batch_size if not args.pool_labels else 1,
+            shuffle = (train_sampler is None),
+            num_workers = args.num_workers,
+            pin_memory = True,
+            sampler = train_sampler
+        )
+        val_dataloader = DataLoader(
+            val_dataset,
+            batch_size = args.val_batch_size if args.val_batch_size is not None else args.batch_size,
+            shuffle = (val_sampler is None),
+            num_workers = args.num_workers,
+            pin_memory = True,
+            sampler = val_sampler
+        )
 
     # if checkpoint specified, make sure to load model and optimizer from this checkpoint and resume from that epoch
     start_epoch = 0
@@ -319,8 +342,11 @@ def main_worker(gpu, ngpus_per_node, args):
     for epoch in range(start_epoch, num_epochs):
         train_epoch_loss = 0
         val_epoch_loss = 0
-        train_dataloader.sampler.set_epoch(epoch)
-        val_dataloader.sampler.set_epoch(epoch)
+
+        # check if train_dataloader is type torch.utils.data.distributed.DistributedSampler
+        if isinstance(train_dataloader.sampler, torch.utils.data.distributed.DistributedSampler):
+            train_dataloader.sampler.set_epoch(epoch)
+            val_dataloader.sampler.set_epoch(epoch)
         val_class_losses = torch.zeros((NUM_CLASSES_FOR_LOSS)) # calculated loss by class
         val_dice_scores_collected_list = []
 
@@ -447,6 +473,7 @@ def main_worker(gpu, ngpus_per_node, args):
         torch.distributed.barrier()
     total_time = time.time() - start_time
     print('Training loop took %s seconds ---' % total_time)
+    print(f'Final model sum of weights: {sum([torch.sum(x) for x in medsam_model.parameters()])}')
     if args.use_wandb and is_main_host:
         wandb.finish()
 

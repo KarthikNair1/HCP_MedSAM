@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=10
+#SBATCH --cpus-per-task=6
 #SBATCH --job-name=singletask_medsam
 #SBATCH --mem=100GB
 #SBATCH --gres=gpu:1
 #SBATCH --partition=a100_short
-#SBATCH --time=1-00:00:00
+#SBATCH --time=06:00:00
 #SBATCH --array=1-102
 #SBATCH --exclude=a100-4005,a100-4020
 
@@ -77,7 +77,7 @@ export WANDB_DIR='/gpfs/home/kn2347/wandb'
 #export CUDA_VISIBLE_DEVICES='0'
 export CUDA_VISIBLE_DEVICES='0,1'
 
-export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_retrain_dice_11-1-24/training'
+export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/main_analysis_12-18-24/MedSAM/training'
 export label=$SLURM_ARRAY_TASK_ID
 
 mkdir -p ${workdir}/${label}/0.0005

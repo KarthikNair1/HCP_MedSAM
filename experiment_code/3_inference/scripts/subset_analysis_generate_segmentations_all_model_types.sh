@@ -21,7 +21,8 @@ do
         for j in "${!frac_arr[@]}"
         do
             frac=${frac_arr[$j]}
-            repeat_num=${repeat_num_arr[$model_type_idx]}
+            #repeat_num=${repeat_num_arr[$model_type_idx]} <- this line was what was originally run, but it's wrong
+            repeat_num=${repeat_num_arr[$i]} 
             echo ${i} ${model_type} ${frac} ${repeat_num}
 
             mri_id=162935

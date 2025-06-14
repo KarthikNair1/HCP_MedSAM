@@ -77,7 +77,7 @@ export WANDB_DIR='/gpfs/home/kn2347/wandb'
 #export CUDA_VISIBLE_DEVICES='0'
 export CUDA_VISIBLE_DEVICES='0,1'
 
-export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_yolo_retrain_dice_11-18-24/training'
+export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/main_analysis_12-18-24/MedSAM_YOLO/training'
 export label=$SLURM_ARRAY_TASK_ID
 export lr=0.0005
 

@@ -8,7 +8,7 @@
 #SBATCH --partition=a100_short
 #SBATCH --time=1-00:00:00
 #SBATCH --array=1-102
-#SBATCH --exclude=a100-4005,a100-4020
+#SBATCH --exclude=a100-4005,a100-4020,a100-4033
 
 cd /gpfs/home/kn2347/HCP_MedSAM_project
 set -x -e
@@ -77,7 +77,7 @@ export WANDB_DIR='/gpfs/home/kn2347/wandb'
 #export CUDA_VISIBLE_DEVICES='0'
 export CUDA_VISIBLE_DEVICES='0,1'
 
-export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_retrain_dice_11-1-24/training'
+export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/main_analysis_12-18-24/MedSAM_Oracle/training'
 export label=$SLURM_ARRAY_TASK_ID
 
 mkdir -p ${workdir}/${label}/0.0005
@@ -89,12 +89,12 @@ for (( i=0; i < $SLURM_NTASKS; ++i ))
 do
     srun -lN1 --mem=100G --gres=gpu:1 -c $SLURM_CPUS_ON_NODE -N 1 -n 1 -r $i bash -c \
     "python experiment_code/1_train_medsam/train_multi_gpus_modified_multiclass.py \
-        --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_constant_bbox.csv \
+        --data_frame_path /gpfs/data/luilab/karthik/pediatric_seg_proj/per_class_isolated_df_new/${label}/0.1/isolated_path_df_bboxes_from_ground_truth.csv \
         --df_starting_mapping_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/hcp_mapping_processed.csv \
         --df_desired_path /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/class_mappings/label${label}_only_name_class_mapping.csv \
         -train_test_splits /gpfs/data/luilab/karthik/pediatric_seg_proj/train_val_test_split.pickle \
         -task_name singletask_medsam_no_yolo \
-        --wandb_run_name label${label}_lr0.0005_diceloss \
+        --wandb_run_name label${label}_lr0.0005_diceloss_oracle \
         -checkpoint /gpfs/home/kn2347/HCP_MedSAM_project/modified_medsam_repo/medsam_vit_b.pth \
         -work_dir ${workdir}/${label}/0.0005 \
         -label_id 1 \

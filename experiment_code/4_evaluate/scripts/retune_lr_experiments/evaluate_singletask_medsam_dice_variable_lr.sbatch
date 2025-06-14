@@ -25,7 +25,7 @@ module purge
 module load slurm/current
 
 export CUDA_VISIBLE_DEVICES='0'
-export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/medsam_dice_retune_lr_11-3-24'
+export workdir='/gpfs/data/luilab/karthik/pediatric_seg_proj/results_copied_from_kn2347/hyperparam_tuning/main_analysis_LR_1-16-25/MedSAM'
 export label=$1
 export lr=$2
 mkdir -p ${workdir}/val/${label}/${lr}

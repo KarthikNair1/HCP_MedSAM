@@ -57,6 +57,7 @@ class dice_ce_loss(Loss):
 # set seeds
 torch.manual_seed(2023)
 torch.cuda.empty_cache()
+assert torch.cuda.is_available(), "No GPU available on node."
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-i', '--data_frame_path', type=str,
