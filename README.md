@@ -34,6 +34,8 @@ All data is available on BigPurple.
 
 <code>medsam_finetuning_organ_dataset.ipynb</code> and <code>medsam_finetuning_hcp_ya.ipynb</code> are useful notebooks for looking at the step-by-step process to training a MedSAM model. The former is finetuning on CT scans, and the latter is specifically for finetuning on the HCP dataset.
 
+Note: more details on methods can be found under the README in the experiment_code folder.
+
 ## Inference
 <code>perform_inference_using_model_multinode.py</code>: Predicts segmentations for all MRI slices in the input path_df (by default, will perform for all train, val, and test MRI's).
 
