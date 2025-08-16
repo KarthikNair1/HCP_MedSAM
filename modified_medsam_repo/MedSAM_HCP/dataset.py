@@ -245,6 +245,72 @@ class MRIDataset_Imgs(MRIDataset):
     def load_image(self, index):
         return super().load_image(index, col_name='img_slice_path')
 
+class MRIDataset_Imgs_MedSAM(MRIDataset): 
+    def __init__(self, data_frame, label_id=None, bbox_shift=0, label_converter=None, NUM_CLASSES = 256, as_one_hot = True, pool_labels = False, preprocess_fn=None):
+        super().__init__(data_frame, label_id, bbox_shift, label_converter, NUM_CLASSES, as_one_hot, pool_labels, preprocess_fn)
+    def __len__(self):
+        return super().__len__()
+    def __getitem__(self, index):
+        # load image as npy (256x256x3)
+        img_path = self.data_frame.loc[index,'image_path']
+        img = Image.open(img_path)
+
+        img_npy = np.array(img)
+
+        if self.preprocess_fn is not None:
+            img_npy = self.preprocess_fn(img_npy)
+            
+        img_npy = np.transpose(img_npy, axes = (2, 0, 1))
+
+        img_slice_name = '_slice'.join(img_path.split('/')[-1:]).split('.png')[0]
+        
+        # load segmentation mask as npy
+        seg_path = self.data_frame.loc[index,'segmentation_slice_path']
+        if isinstance(seg_path, str) and os.path.exists(seg_path):
+            seg_npy = np.load(seg_path) # (256, 256)
+        else:
+            seg_npy = np.full((256, 256), np.nan)
+        
+        if self.label_converter is not None:
+            seg_npy = self.label_converter.hcp_to_compressed(seg_npy)
+        
+        if self.label_id is not None:
+            if self.pool_labels:
+                label_number = self.data_frame.loc[index,'label_number']
+            else:
+                label_number = self.label_id
+
+            seg_npy = (seg_npy == label_number).astype(np.uint8)
+            seg_tens = torch.tensor(seg_npy[None, :, :]).long()
+        else:
+            assert False
+
+        # load bounding box coordinates from data frame
+        x_min, x_max = self.data_frame.loc[index, 'bbox_0'], self.data_frame.loc[index, 'bbox_2']
+        y_min, y_max = self.data_frame.loc[index, 'bbox_1'], self.data_frame.loc[index, 'bbox_3']
+        
+        if not np.any(np.isnan([x_min, x_max, y_min, y_max])): # if no nans
+            # add perturbation to bounding box coordinates
+            H, W = seg_npy.shape
+            x_min = max(0, x_min - random.randint(0, self.bbox_shift))
+            x_max = min(W, x_max + random.randint(0, self.bbox_shift))
+            y_min = max(0, y_min - random.randint(0, self.bbox_shift))
+            y_max = min(H, y_max + random.randint(0, self.bbox_shift))
+        
+        bboxes = np.array([x_min, y_min, x_max, y_max])
+
+        return torch.tensor(img_npy).float(), seg_tens, torch.tensor(bboxes).float(), img_slice_name
+
+    def get_slice_name(self, index):
+        img_path = self.data_frame.loc[index,'image_path']
+        ido = self.data_frame.loc[index,'id']
+        sliceo = self.data_frame.loc[index,'slice']
+        img_slice_name = f'{ido}_{sliceo}'
+        return img_slice_name
+
+    def load_image(self, index):
+        return super().load_image(index, col_name='image_path')
+
 # code to load train, val, test datasets
 def load_datasets(path_df_path, train_test_splits_path, label_id, bbox_shift=0, 
                 sample_n_slices = None, label_converter=None, NUM_CLASSES=256, 

@@ -74,6 +74,10 @@ parser.add_argument('--bbox_shift', type=int, default=0)
 
 parser.add_argument('--train_prompt_encoder', action='store_true', default=False, help = 'Should prompt encoder weights be unfrozen')
 
+parser.add_argument('--train_end_to_end', action='store_true', default=False, help = 'Should image encoder, prompt encoder, and mask decoder all be trained?')
+parser.add_argument('--image_encoder_lr', type=float, default=1e-4, help = 'If train_end_to_end enabled, what is the LR for the image encoder parameters?')
+parser.add_argument('--prompt_encoder_lr', type=float, default=1e-4, help = 'If train_end_to_end enabled, what is the LR for the prompt encoder parameters?')
+
 
 # Optimizer parameters
 parser.add_argument('-weight_decay', type=float, default=0.01,
